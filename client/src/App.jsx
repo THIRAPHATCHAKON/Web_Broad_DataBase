@@ -3,6 +3,8 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Thread from "./pages/Thread";
 import New_Thread from './pages/New_Thread';
+import Edit_Profile from "./pages/EditProfile";
+
 
 export default function App() {
   return (
@@ -13,6 +15,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/new_thread" element={<New_Thread />} />
+          <Route path="/edit_profile" element={<Edit_Profile />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
