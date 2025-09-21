@@ -1,15 +1,37 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const navigate = useNavigate();
+async function onSubmit(e) {
+  e.preventDefault();
+  const res = await fetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ email, password }),
+  });
 
-  function onSubmit(e) {
-    e.preventDefault();
-    // TODO: เรียก API เข้าสู่ระบบ เช่น fetch('/api/login', { method:'POST', body: JSON.stringify({ email, password }) })
-    console.log({ email, password });
+  const data = await res.json();
+
+  if (!res.ok) {
+    alert(data.message || "Login failed");
+    return;
   }
+
+  // ตัวอย่าง: ถ้า redirectTo เป็น path ภายในแอป
+  if (data.redirectTo?.startsWith("/")) {
+    navigate(data.redirectTo);               // e.g. "/dashboard"
+  } else if (data.redirectTo) {
+    window.location.assign(data.redirectTo); // e.g. "https://example.com"
+  } else {
+    navigate("/"); // default
+  }
+}
+
 
   return (
     <div className="d-flex justify-content-center align-items-center vh-100">
