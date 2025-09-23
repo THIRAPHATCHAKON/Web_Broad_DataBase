@@ -12,6 +12,7 @@ export default function App() {
       <main className="flex-grow-1">
         <Routes>
           <Route path="/" element={<Thread />} />
+          <Route path="/thread"element={<Thread />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/new_thread" element={<New_Thread />} />
