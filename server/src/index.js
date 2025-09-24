@@ -32,15 +32,38 @@ if (fs.existsSync(distPath)) {
 
 
 app.post("/api/register", async (req, res) => {
-  const { email, password } = req.body || {};
-  if (!email || !password) return res.status(400).json({ ok: false, message: "missing fields" });
-
   try {
+    const { username, email, password } = req.body || {};
+    if (!username || !email || !password) {
+      return res.status(400).json({ message: "ข้อมูลไม่ครบ" });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ message: "รหัสผ่านอย่างน้อย 6 ตัวอักษร" });
+    }
+
     const passHash = await bcrypt.hash(password, 10);
-    const user = await prisma.user.create({ data: { email, passHash } });
-    res.json({ ok: true, user: { id: user.id, email: user.email, role: user.role } });
-  } catch (e) {
-    res.status(400).json({ ok: false, message: "อีเมลนี้ถูกใช้แล้ว" });
+
+    const user = await prisma.user.create({
+      data: { username, email, passHash, role: "user" },
+      select: { id: true, username: true, email: true, role: true }
+    });
+
+    // แบบ A: ส่งข้อความแล้วให้ไป login เอง
+    return res.json({ ok: true, message: "สมัครสำเร็จ", user });
+
+    // แบบ B: ออก token ให้เลย (ถ้าต้องการ)
+    // const token = jwt.sign({ sub: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: "2h" });
+    // return res.json({ ok: true, user, token });
+
+  } catch (err) {
+    // จัดการกรณีซ้ำ (unique) ของ Prisma
+    // P2002 = Unique constraint failed
+    if (err.code === "P2002") {
+      const field = err.meta?.target?.[0] || "ข้อมูล";
+      return res.status(409).json({ message: `${field} นี้ถูกใช้แล้ว` });
+    }
+    console.error(err);
+    return res.status(500).json({ message: "เกิดข้อผิดพลาดของเซิร์ฟเวอร์" });
   }
 });
 
