@@ -1,0 +1,19 @@
+services:
+  db:
+    image: mysql:8.0        # ถ้าอยากใช้ MariaDB: mariadb:10.11
+    container_name: mini_forum_db
+    environment:
+      MYSQL_ROOT_PASSWORD: example
+      MYSQL_DATABASE: mini_forum
+      TZ: Asia/Bangkok
+    ports:
+      - "3306:3306"
+    volumes:
+      - dbdata:/var/lib/mysql
+  adminer:
+    image: adminer
+    container_name: mini_forum_adminer
+    ports:
+      - "8080:8080"
+volumes:
+  dbdata:

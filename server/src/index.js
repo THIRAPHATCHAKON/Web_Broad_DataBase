@@ -1,13 +1,15 @@
-// server/src/index.js
+const { PrismaClient } = require("@prisma/client");
+const bcrypt = require("bcryptjs");
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const cookieParser = require('cookie-parser');
-
+const prisma = new PrismaClient();
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(cors({ origin: "http://localhost:5173", credentials: true })); // ถ้าเรียกจาก Vite
 app.use(cookieParser());
 // ---- API ก่อน ----
 app.get('/api/health', (req, res) => {
@@ -28,22 +30,51 @@ if (fs.existsSync(distPath)) {
   });
 }
 
-// server/src/index.js (หรือใน routes แยกไฟล์)
-app.get('/api/profile', (req, res) => {
-  res.json({ name: 'Kepin', role: 'user' })
-})
 
-app.post("/api/login", (req, res) => {
+app.post("/api/register", async (req, res) => {
   const { email, password } = req.body || {};
-  if (email === "admin@example.com" && password === "123456") {
-    // เดโม่: ส่ง token/ตั้งคุกกี้เซสชันตามต้องการ
-    // res.cookie("sid", "mock-session-id", { httpOnly: true, sameSite: "lax" });
-    console.log("login success");
-    return res.json({ ok: true, redirectTo: "/Thread" })
+  if (!email || !password) return res.status(400).json({ ok: false, message: "missing fields" });
+
+  try {
+    const passHash = await bcrypt.hash(password, 10);
+    const user = await prisma.user.create({ data: { email, passHash } });
+    res.json({ ok: true, user: { id: user.id, email: user.email, role: user.role } });
+  } catch (e) {
+    res.status(400).json({ ok: false, message: "อีเมลนี้ถูกใช้แล้ว" });
   }
-  console.log("login fali");
-  return res.status(401).json({ message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" });
 });
+
+// ล็อกอิน
+app.post("/api/login", async (req, res) => {
+  const { email, password } = req.body || {};
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) return res.status(401).json({ ok: false, message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" });
+
+  const ok = await bcrypt.compare(password, user.passHash);
+  if (!ok) return res.status(401).json({ ok: false, message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" });
+
+  res.json({
+    ok: true,
+    redirectTo: "/thread",
+    user: { id: user.id, email: user.email, role: user.role }
+  });
+});
+
+// thread ตัวอย่าง
+app.get("/api/threads", async (_req, res) => {
+  const items = await prisma.thread.findMany({
+    include: { author: { select: { id: true, email: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+  res.json({ ok: true, items });
+});
+
+app.post("/api/threads", async (req, res) => {
+  const { title, body, authorId } = req.body || {};
+  const t = await prisma.thread.create({ data: { title, body, authorId } });
+  res.json({ ok: true, thread: t });
+});
+
 
 
 const PORT = process.env.PORT || 3000;
