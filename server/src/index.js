@@ -20,19 +20,32 @@ app.use(cookieParser());
 app.use("/static", express.static(path.join(__dirname, "../static")));
 
 /* ---------- upload (multer) ---------- */
-const uploadDir = path.join(__dirname, "../static/thread_images");
-fs.mkdirSync(uploadDir, { recursive: true });
+const uploadDirs = {
+  thread: path.join(__dirname, "../static/thread_images"),
+  avatar: path.join(__dirname, "../static/avatars")
+};
+Object.values(uploadDirs).forEach(dir => fs.mkdirSync(dir, { recursive: true }));
 
-const storage = multer.diskStorage({
-  destination: (_, __, cb) => cb(null, uploadDir),
-  filename: (_, file, cb) => {
-    const ext = path.extname(file.originalname || "").toLowerCase();
-    const name = Date.now() + "-" + Math.random().toString(16).slice(2) + ext;
-    cb(null, name);
-  },
+const threadStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDirs.thread),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `thread-${Date.now()}${ext}`);
+  }
 });
-const upload = multer({ storage });
 
+
+const avatarStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadDirs.avatar),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `avatar-${Date.now()}${ext}`);
+  }
+});
+
+// สร้าง multer instances
+const uploadThread = multer({ storage: threadStorage });
+const uploadAvatar = multer({ storage: avatarStorage });
 /* ---------- health ---------- */
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
@@ -106,36 +119,34 @@ app.get("/api/threads", async (_req, res) => {
 
 // POST create (รองรับ multipart + รูป optional)
 // ฟิลด์ text: title, body, tags, authorId
-app.post("/api/threads", upload.single("image"), async (req, res) => {
+app.post("/api/threads", uploadThread.single("cover"), async (req, res) => {
+  const { title, body, tags } = req.body;
+  const auth = req.headers.authorization?.replace(/^Bearer\s+/i, "") || "";
   try {
-    const { title, body, tags, authorId } = req.body || {};
-    if (!title || !body) {
-      return res.status(400).json({ ok: false, message: "กรอกหัวข้อและรายละเอียด" });
+    const userId = parseInt(req.body.userId, 10);
+    if (!title?.trim() || !body?.trim() || Number.isNaN(userId)) {
+      return res.status(400).json({ ok: false, message: "invalid input" });
     }
-
-    // ปกติ authorId ควรอ่านจาก token/cookie; ที่นี่รับจาก body ชั่วคราว
-    const authorIdNum = parseInt(authorId, 10);
-    if (Number.isNaN(authorIdNum)) {
-      return res.status(400).json({ ok: false, message: "authorId ไม่ถูกต้อง" });
-    }
-
-    const coverUrl = req.file ? `/static/thread_images/${req.file.filename}` : null;
 
     const thread = await prisma.thread.create({
       data: {
         title: title.trim(),
         body: body.trim(),
-        tags: (tags || "").trim(),   // เช่น "react,bootstrap"
-        coverUrl,
-        authorId: authorIdNum,
+        tags: tags?.trim() || null,
+        authorId: userId,
+        coverUrl: req.file ? `/static/thread_images/${req.file.filename}` : null
       },
-      select: { id: true, title: true, coverUrl: true, createdAt: true },
+      include: {
+        author: {
+          select: { id: true, username: true, email: true, avatarUrl: true }
+        }
+      }
     });
 
     res.json({ ok: true, thread });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, message: "server error" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: "สร้างกระทู้ไม่สำเร็จ" });
   }
 });
 
@@ -163,6 +174,134 @@ app.get("/api/threads/:id", async (req, res) => {
   res.json({ ok: true, thread: t });
 });
 
+app.delete("/api/threads/:id", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const auth = req.headers.authorization || "";
+  const token = auth.replace(/^Bearer\s+/i, "");
+  const userId = parseInt(req.query.userId, 10);
+
+  if (Number.isNaN(id) || Number.isNaN(userId)) {
+    return res.status(400).json({ ok: false, message: "bad id" });
+  }
+
+  const thread = await prisma.thread.findUnique({ where: { id } });
+  if (!thread) return res.status(404).json({ ok: false, message: "not found" });
+  if (thread.authorId !== userId) {
+    return res.status(403).json({ ok: false, message: "no permission" });
+  }
+
+  // ลบคอมเมนต์ทั้งหมดของกระทู้นี้ก่อน
+  await prisma.comment.deleteMany({ where: { threadId: id } });
+
+  // แล้วค่อยลบกระทู้
+  await prisma.thread.delete({ where: { id } });
+  res.json({ ok: true });
+});
+
+// GET comments ของกระทู้นั้น
+app.get("/api/threads/:id/comments", async (req, res) => {
+  const threadId = parseInt(req.params.id, 10);
+  if (Number.isNaN(threadId)) return res.status(400).json({ ok: false, message: "bad id" });
+
+  const thread = await prisma.thread.findUnique({ where: { id: threadId } });
+  if (!thread) return res.status(404).json({ ok: false, message: "ไม่พบกระทู้" });
+
+  const items = await prisma.comment.findMany({
+    where: { threadId },
+    include: { author: { select: { id: true, username: true, email: true, avatarUrl: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+
+  res.json({ ok: true, items });
+});
+
+// POST comment -> คืน comment พร้อมข้อมูล author
+app.post("/api/threads/:id/comments", async (req, res) => {
+  const threadId = parseInt(req.params.id, 10);
+  const { body, authorId } = req.body || {};
+  if (!body || !authorId) {
+    return res.status(400).json({ ok: false, message: "ข้อมูลไม่ครบ" });
+  }
+  const thread = await prisma.thread.findUnique({ where: { id: threadId } });
+  if (!thread) return res.status(404).json({ ok: false, message: "ไม่พบกระทู้" });
+
+  const created = await prisma.comment.create({
+    data: {
+      body: body.trim(),
+      threadId,
+      authorId: parseInt(authorId, 10),
+    },
+    include: {
+      author: { select: { id: true, username: true, email: true, avatarUrl: true } }
+    }
+  });
+
+  res.json({ ok: true, comment: created });
+});
+
+app.patch("/api/users/:id", uploadAvatar.single("avatar"), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const { username } = req.body;
+
+  try {
+    let avatarUrl = undefined;
+    if (req.file) {
+      avatarUrl = `/static/avatars/${req.file.filename}`;
+    }
+
+    const user = await prisma.user.update({
+      where: { id },
+      data: {
+        username: username || undefined,
+        avatarUrl: avatarUrl || undefined
+      },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        avatarUrl: true,
+        role: true
+      }
+    });
+
+    res.json({ ok: true, user });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: "อัพเดตไม่สำเร็จ" });
+  }
+});
+
+// PATCH user profile
+app.patch("/api/users/:id", uploadAvatar.single("avatar"), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const { username } = req.body;
+
+  try {
+    let avatarUrl = undefined;
+    if (req.file) {
+      avatarUrl = `/static/avatars/${req.file.filename}`;
+    }
+
+    const user = await prisma.user.update({
+      where: { id },
+      data: {
+        username: username || undefined,
+        avatarUrl: avatarUrl || undefined
+      },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        avatarUrl: true,
+        role: true
+      }
+    });
+
+    res.json({ ok: true, user });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: "อัพเดตไม่สำเร็จ" });
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));

@@ -37,6 +37,8 @@ export default function Header() {
             <span className="small">{user.email}</span>
           </a>
           <ul className="dropdown-menu dropdown-menu-end">
+            <li><Link className="dropdown-item" to="/edit_profile">EditProfile</Link></li>
+            <li><hr className="dropdown-divider" /></li>
             <li><Link className="dropdown-item" to="/new_thread">New thread</Link></li>
             <li><hr className="dropdown-divider" /></li>
             <li><button className="dropdown-item" onClick={() => { signOut(); nav("/login",{replace:true}); }}>Sign out</button></li>

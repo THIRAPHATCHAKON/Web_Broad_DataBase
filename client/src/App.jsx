@@ -4,6 +4,7 @@ import Login from "./pages/Login.jsx";
 import Register from "./pages/Register.jsx";
 import New_Thread from "./pages/New_Thread.jsx";
 import { useAuth } from "./auth.jsx";
+import EditProfile from "./pages/EditProfile.jsx";
 
 function PrivateRoute({ children }) {
   const { user, ready } = useAuth();
@@ -20,6 +21,7 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/new_thread" element={<PrivateRoute><New_Thread /></PrivateRoute>} />
+      <Route path="/edit_profile" element={<PrivateRoute><EditProfile /></PrivateRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

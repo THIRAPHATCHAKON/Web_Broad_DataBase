@@ -2,7 +2,10 @@ import Footer from "./Footer";
 import Header from "./Header";
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../auth.jsx";
+import { useAuth } from "../auth";
+
+// เพิ่มการประกาศ API URL
+const API = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
 export default function New_Thread() {
   const { user } = useAuth();
@@ -20,30 +23,33 @@ export default function New_Thread() {
 
   async function onSubmit(e) {
     e.preventDefault();
-    if (!valid || submitting) return;
+    if (submitting) return;
     setSubmitting(true);
 
     try {
-      const fd = new FormData();
-      fd.append("title", title.trim());
-      fd.append("body", body.trim());
-      fd.append("tags", tags.trim()); // คั่นด้วย ,
-      fd.append("authorId", String(user.id));
-      if (file) fd.append("image", file);
+      const formData = new FormData();
+      formData.append("title", title.trim());
+      formData.append("body", body.trim());
+      formData.append("tags", tags.trim());
+      formData.append("userId", user.id);
+      if (file) {
+        formData.append("cover", file);
+      }
 
-      // ถ้าต้องการ auth ฝั่ง server ให้แนบ Bearer token หรือ cookie ตามที่คุณทำ
-      const res = await fetch("/api/threads", {
+      const res = await fetch(`${API}/api/threads`, {
         method: "POST",
-        body: fd,
+        headers: {
+          "Authorization": `Bearer ${user.token}`
+        },
+        body: formData
       });
+
       const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "สร้างกระทู้ไม่สำเร็จ");
 
-      if (!res.ok || !data.ok) throw new Error(data.message || "สร้างกระทู้ไม่สำเร็จ");
-
-      // ไปหน้าแสดงกระทู้ที่เพิ่งสร้าง เช่น /thread/:id
-      nav(`/thread?id=${data.thread.id}`, { replace: true });
+      nav("/");
     } catch (err) {
-      alert(err.message || "เกิดข้อผิดพลาด");
+      alert(err.message);
     } finally {
       setSubmitting(false);
     }
