@@ -1,6 +1,7 @@
 import Header from "./Header";
 import Footer from "./Footer";
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
@@ -190,12 +191,20 @@ export default function Thread() {
 
                       {/* ปุ่มลบเฉพาะเจ้าของ */}
                       {user?.id === t.author?.id && (
-                        <button
-                          className="btn btn-danger btn-sm mt-2"
-                          onClick={() => handleDelete(t.id)}
-                        >
-                          ลบกระทู้
-                        </button>
+                        <div className="mt-2">
+                          <Link 
+                            to={`/threads/${t.id}/edit`}
+                            className="btn btn-outline-primary btn-sm me-2"
+                          >
+                            แก้ไขกระทู้
+                          </Link>
+                          <button
+                            className="btn btn-danger btn-sm"
+                            onClick={() => handleDelete(t.id)}
+                          >
+                            ลบกระทู้
+                          </button>
+                        </div>
                       )}
 
                       {/* แสดงคอมเมนต์ ถ้ามี */}
