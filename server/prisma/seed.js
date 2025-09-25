@@ -15,6 +15,7 @@ async function main() {
       email: 'admin@example.com',
       passHash,
       role: 'admin',
+      avatarUrl: "http://localhost:3000/static/avatars/default.png"
     },
   });
 

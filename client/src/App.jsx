@@ -1,26 +1,26 @@
-import { Routes, Route, Link, Navigate } from 'react-router-dom'
-import Login from "./pages/Login";
-import Register from "./pages/Register";
-import Thread from "./pages/Thread";
-import New_Thread from './pages/New_Thread';
-import Edit_Profile from "./pages/EditProfile";
+import { Routes, Route, Navigate } from "react-router-dom";
+import Thread from "./pages/Thread.jsx";
+import Login from "./pages/Login.jsx";
+import Register from "./pages/Register.jsx";
+import New_Thread from "./pages/New_Thread.jsx";
+import { useAuth } from "./auth.jsx";
 
+function PrivateRoute({ children }) {
+  const { user, ready } = useAuth();
+  if (!ready) return <div className="p-4 text-center">Loading…</div>;
+  if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
 
 export default function App() {
   return (
-    <div className="d-flex flex-column min-vh-100">
-      <main className="flex-grow-1">
-        <Routes>
-          <Route path="/" element={<Thread />} />
-          <Route path="/thread"element={<Thread />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/new_thread" element={<New_Thread />} />
-          <Route path="/edit_profile" element={<Edit_Profile />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
-    </div>
+    <Routes>
+      <Route path="/" element={<PrivateRoute><Thread /></PrivateRoute>} />
+      <Route path="/thread" element={<PrivateRoute><Thread /></PrivateRoute>} />
+      <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+      <Route path="/new_thread" element={<PrivateRoute><New_Thread /></PrivateRoute>} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }
-

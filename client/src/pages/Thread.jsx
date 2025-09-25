@@ -1,195 +1,81 @@
 import Header from "./Header";
 import Footer from "./Footer";
-import Header_user from "./Header_user";
-import { useState, useMemo, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+
+const API = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
 export default function Thread() {
-    const nav = useNavigate();
+  const [threads, setThreads] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-    // 1) hooks ทั้งหมดอยู่ข้างบน
-    const [user, setUser] = useState(null);
-    const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${API}/api/threads`);
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.message || "โหลดกระทู้ไม่สำเร็จ");
+        setThreads(data.items || []);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
-    // demo thread state (ต้องประกาศก่อน return/if ใดๆ)
-    const [title, setTitle] = useState("Welcome Thread");
-    const [author, setAuthor] = useState("Admin");
-    const [body, setBody] = useState("ยินดีต้อนรับสู่ Mini Forum — ลองคอมเมนต์ได้เลย!");
-    const [deleted, setDeleted] = useState(false);
-    const timeText = useMemo(() => "just now", []);
-    const [comments, setComments] = useState([]);
+  if (loading) return <div className="p-4 text-center">Loading…</div>;
 
-    useEffect(() => {
-        try {
-            const raw = localStorage.getItem("user");
-            if (!raw) throw new Error("no user");
-            const u = JSON.parse(raw);
-            if (!u?.email || !u?.role) throw new Error("bad user");
-            setUser(u);
-        } catch {
-            localStorage.removeItem("user");
-            nav("/login", { replace: true });
-        } finally {
-            setLoading(false);
-        }
-    }, [nav]);
+  return (
+    <div className="d-flex flex-column min-vh-100">
+      <Header />
+      <main className="flex-grow-1">
+        <section className="container my-4">
+          <h5 className="mb-3">Threads</h5>
 
-    // 2) ค่อย return เงื่อนไขได้ หลังประกาศ hooks ครบแล้ว
-    if (loading) {
-        return (
-            <div className="d-flex justify-content-center align-items-center vh-100">
-                <div className="text-muted">Loading…</div>
-            </div>
-        );
-    }
+          {threads.length === 0 && (
+            <div className="alert alert-secondary">ยังไม่มีกระทู้</div>
+          )}
 
-    const isAuthed = !!user;
-
-    function onDeleteThread() {
-        setDeleted(true);
-    }
-
-    async function onSubmitComment(e) {
-        e.preventDefault();
-        const fd = new FormData(e.currentTarget);
-        setComments(prev => [{
-            id: Date.now(),
-            author: fd.get("author"),
-            body: fd.get("body"),
-            time: new Date().toLocaleString(),
-        }, ...prev]);
-        e.currentTarget.reset();
-    }
-
-    function onSaveEdit(e) {
-        e.preventDefault();
-        const titleEl = document.getElementById("editTitle");
-        const bodyEl = document.getElementById("editBody");
-        const authorEl = document.getElementById("editAuthor");
-        setTitle(titleEl.value);
-        setBody(bodyEl.value);
-        setAuthor(authorEl.value);
-
-        const modalEl = document.getElementById("editThreadModal");
-        const bs = window.bootstrap;
-        if (modalEl && bs?.Modal) {
-            const modal = bs.Modal.getInstance(modalEl) || new bs.Modal(modalEl);
-            modal.hide();
-        }
-    }
-
-    return (
-        <div className="d-flex flex-column min-vh-100">
-            {isAuthed ? <Header_user /> : <Header />}
-
-            <main className="flex-grow-1">
-                <section className="container my-4" id="demo-thread">
-                    <div className="card shadow-sm thread-card">
-                        <div className="card-body">
-                            <div className="d-flex align-items-start justify-content-between">
-                                <div className="d-flex gap-3">
-                                    <div className="avatar rounded-circle d-flex align-items-center justify-content-center bg-secondary-subtle" style={{ width: 40, height: 40 }}>
-                                        AD
-                                    </div>
-                                    <div>
-                                        <h5 className="mb-1" id="threadTitle">
-                                            {deleted ? <span className="text-danger">This thread has been deleted.</span> : title}
-                                        </h5>
-                                        <div className="text-muted small">
-                                            by <span className="fw-semibold" id="threadAuthor">{author}</span> ·{" "}
-                                            <span id="threadTime">{timeText}</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="dropdown">
-                                    <button className="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown">
-                                        Manage
-                                    </button>
-                                    <ul className="dropdown-menu dropdown-menu-end">
-                                        <li>
-                                            <button className="dropdown-item" data-bs-toggle="modal" data-bs-target="#editThreadModal" disabled={deleted}>
-                                                Edit thread
-                                            </button>
-                                        </li>
-                                        <li>
-                                            <button className="dropdown-item text-danger" id="deleteThreadBtn" onClick={onDeleteThread} disabled={deleted}>
-                                                Delete thread
-                                            </button>
-                                        </li>
-                                    </ul>
-                                </div>
-                            </div>
-
-                            <p className="mt-3 mb-0" id="threadBody">
-                                {deleted ? <em className="text-muted">โพสต์นี้ถูกลบแล้ว</em> : body}
-                            </p>
-                        </div>
-
-                        <div className="card-footer bg-white">
-                            <h6 className="mb-3">Comments</h6>
-
-                            <ul className="list-group list-group-flush mb-3" id="commentList">
-                                {comments.length === 0 && <li className="list-group-item text-muted">ยังไม่มีคอมเมนต์</li>}
-                                {comments.map(c => (
-                                    <li key={c.id} className="list-group-item">
-                                        <div className="d-flex justify-content-between">
-                                            <div>
-                                                <strong>{c.author}</strong>
-                                                <div className="text-muted small">{c.time}</div>
-                                            </div>
-                                        </div>
-                                        <div className="mt-2">{c.body}</div>
-                                    </li>
-                                ))}
-                            </ul>
-
-                            <form className="row g-2 align-items-center" onSubmit={onSubmitComment}>
-                                <div className="col-12 col-md-3">
-                                    <input className="form-control" name="author" placeholder="Your name" required />
-                                </div>
-                                <div className="col-12 col-md-7">
-                                    <input className="form-control" name="body" placeholder="Write a comment..." required />
-                                </div>
-                                <div className="col-12 col-md-2 d-grid">
-                                    <button className="btn btn-primary">Comment</button>
-                                </div>
-                            </form>
-                        </div>
+          <div className="d-grid gap-3">
+            {threads.map(t => (
+              <div key={t.id} className="card shadow-sm">
+                <div className="card-body">
+                  <div className="d-flex gap-3">
+                    <img
+                      src={(t.author?.avatarUrl && `${API}${t.author.avatarUrl}`) || `${API}/static/avatars/default.png`}
+                      alt="avatar" width="40" height="40"
+                      className="rounded-circle border"
+                      onError={(e)=>{e.currentTarget.src=`${API}/static/avatars/default.png`;}}
+                    />
+                    <div className="w-100">
+                      <div className="d-flex justify-content-between align-items-start">
+                        <h5 className="mb-1">{t.title}</h5>
+                        <small className="text-muted">
+                          {new Date(t.createdAt).toLocaleString()}
+                        </small>
+                      </div>
+                      <div className="text-muted small mb-2">
+                        by {t.author?.username || t.author?.email || "Unknown"}
+                      </div>
+                      {t.coverUrl && (
+                        <img
+                          src={`${API}${t.coverUrl}`}
+                          className="img-fluid rounded mb-2"
+                          alt="cover"
+                          onError={(e)=>{e.currentTarget.style.display="none";}}
+                        />
+                      )}
+                      <p className="mb-0">{t.body}</p>
                     </div>
-                </section>
-            </main>
-
-            {/* Edit Thread Modal */}
-            <div className="modal fade" id="editThreadModal" tabIndex="-1" aria-hidden="true">
-                <div className="modal-dialog">
-                    <form className="modal-content" onSubmit={onSaveEdit}>
-                        <div className="modal-header">
-                            <h5 className="modal-title">Edit thread</h5>
-                            <button type="button" className="btn-close" data-bs-dismiss="modal" />
-                        </div>
-                        <div className="modal-body">
-                            <div className="mb-3">
-                                <label className="form-label" htmlFor="editTitle">Title</label>
-                                <input className="form-control" id="editTitle" defaultValue={title} required />
-                            </div>
-                            <div className="mb-3">
-                                <label className="form-label" htmlFor="editBody">Body</label>
-                                <textarea className="form-control" rows="4" id="editBody" defaultValue={body} required />
-                            </div>
-                            <div className="mb-3">
-                                <label className="form-label" htmlFor="editAuthor">Author</label>
-                                <input className="form-control" id="editAuthor" defaultValue={author} required />
-                            </div>
-                        </div>
-                        <div className="modal-footer">
-                            <button className="btn btn-primary">Save changes</button>
-                        </div>
-                    </form>
+                  </div>
                 </div>
-            </div>
+              </div>
+            ))}
+          </div>
 
-            <Footer />
-        </div>
-    );
+        </section>
+      </main>
+      <Footer />
+    </div>
+  );
 }
