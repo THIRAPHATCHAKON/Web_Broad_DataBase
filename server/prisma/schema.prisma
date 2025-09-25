@@ -1,46 +1,45 @@
-// prisma/schema.prisma
-datasource db {
-  provider = "mysql"
-  url      = env("DATABASE_URL") // mysql://user:pass@localhost:3306/mini_forum
-}
-
+// server/prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
 
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
 model User {
-  id        Int      @id @default(autoincrement())
-  username  String   @unique
-  email     String   @unique
+  id        Int       @id @default(autoincrement())
+  email     String    @unique
+  username  String?
   passHash  String
-  role      String   @default("user")
-  avatarUrl String   @default("http://localhost:3000/static/avatars/default.png")
-  createdAt DateTime @default(now())   // ← ต้องมีแบบนี้
-  lastLogin DateTime?
+  role      String    @default("user")
+  avatarUrl String    @default("/static/avatars/default.png")
+  createdAt DateTime  @default(now())
   threads   Thread[]
   comments  Comment[]
 }
-
 
 model Thread {
   id        Int       @id @default(autoincrement())
   title     String
   body      String
-  tags      String?   // เก็บ "react,bootstrap"
-  coverUrl  String?   // ไฟล์รูปปก (ถ้ามี) เช่น "/static/thread_images/xxx.png"
-  author    User      @relation(fields: [authorId], references: [id])
+  tags      String?
+  coverUrl  String?
   authorId  Int
-  createdAt DateTime  @default(now())
+  author    User      @relation(fields: [authorId], references: [id])
   comments  Comment[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 }
 
 model Comment {
-  id        Int       @id @default(autoincrement())
+  id        Int      @id @default(autoincrement())
   body      String
   authorId  Int
   threadId  Int
-  createdAt DateTime  @default(now())
-
-  author    User      @relation(fields: [authorId], references: [id])
-  thread    Thread    @relation(fields: [threadId], references: [id])
+  author    User     @relation(fields: [authorId], references: [id])
+  thread    Thread   @relation(fields: [threadId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

@@ -1,15 +1,13 @@
 -- CreateTable
 CREATE TABLE `User` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
-    `username` VARCHAR(191) NOT NULL,
     `email` VARCHAR(191) NOT NULL,
+    `username` VARCHAR(191) NULL,
     `passHash` VARCHAR(191) NOT NULL,
     `role` VARCHAR(191) NOT NULL DEFAULT 'user',
-    `avatarUrl` VARCHAR(191) NOT NULL DEFAULT 'http://localhost:3000/static/avatars/default.png',
+    `avatarUrl` VARCHAR(191) NOT NULL DEFAULT '/static/avatars/default.png',
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    `lastLogin` DATETIME(3) NULL,
 
-    UNIQUE INDEX `User_username_key`(`username`),
     UNIQUE INDEX `User_email_key`(`email`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -23,6 +21,7 @@ CREATE TABLE `Thread` (
     `coverUrl` VARCHAR(191) NULL,
     `authorId` INTEGER NOT NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
 
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -34,6 +33,7 @@ CREATE TABLE `Comment` (
     `authorId` INTEGER NOT NULL,
     `threadId` INTEGER NOT NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
 
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
