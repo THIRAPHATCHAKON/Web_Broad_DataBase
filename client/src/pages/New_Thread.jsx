@@ -1,6 +1,6 @@
 import Footer from "./Footer";
 import Header from "./Header";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
 
@@ -16,10 +16,19 @@ export default function New_Thread() {
   const [tags, setTags]   = useState("");
   const [file, setFile]   = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [categories, setCategories] = useState([]);
+  const [categoryId, setCategoryId] = useState("");
 
   const titleLeft = 120 - title.length;
   const bodyLeft  = 5000 - body.length;
   const valid = title.trim() && body.trim() && title.length <= 120 && body.length <= 5000;
+
+useEffect(() => {
+  fetch(`${API}/api/categories`)
+    .then(res => res.json())
+    .then(setCategories)
+    .catch(() => setCategories([]));
+}, []);
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -32,6 +41,7 @@ export default function New_Thread() {
       formData.append("body", body.trim());
       formData.append("tags", tags.trim());
       formData.append("userId", user.id);
+      formData.append("categoryId", categoryId);
       if (file) {
         formData.append("cover", file);
       }
@@ -130,6 +140,25 @@ export default function New_Thread() {
                     onChange={(e) => setFile(e.target.files?.[0] || null)}
                   />
                   <div className="form-text">รองรับ JPG/PNG/WebP — แนะนำ &lt; 3MB</div>
+                </div>
+
+                {/* Category */}
+                <div className="mb-3">
+                  <label className="form-label">หมวดหมู่ <span className="text-danger">*</span></label>
+                  <select
+                    className="form-select"
+                    value={categoryId}
+                    onChange={e => setCategoryId(e.target.value)}
+                    required
+                  >
+                    <option value="">-- เลือกหมวดหมู่ --</option>
+                    {categories.length === 0
+                      ? <option disabled>กำลังโหลด...</option>
+                      : categories.map(cat => (
+                        <option key={cat.id} value={cat.id}>{cat.name}</option>
+                      ))
+                    }
+                  </select>
                 </div>
 
                 {/* Actions */}

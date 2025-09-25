@@ -1,56 +1,30 @@
 import Header from "./Header";
 import Footer from "./Footer";
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
 export default function Thread() {
+  const location = useLocation();
   const [threads, setThreads] = useState([]);
+  const params = new URLSearchParams(location.search);
+  const category = params.get("category");
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
   const [loading, setLoading] = useState(true);
   const [comment, setComment] = useState({});
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
 
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(`${API}/api/threads`);
-        const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error(data.message || "โหลดกระทู้ไม่สำเร็จ");
-        const items = data.items || data.threads || data || [];
-
-        // โหลด comments ของแต่ละ thread แบบ robust
-        await Promise.all(items.map(async (t) => {
-          try {
-            const rc = await fetch(`${API}/api/threads/${t.id}/comments`, {
-              headers: { "Authorization": `Bearer ${user?.token}` } // ถ้าต้องการ auth
-            });
-            if (!rc.ok) {
-              // ถ้า endpoint /comments ไม่มี ให้พยายามดูว่ server คืน comments มาใน thread object
-              t.comments = t.comments || [];
-              return;
-            }
-            const dc = await rc.json().catch(() => null);
-            // รองรับหลายรูปแบบ response
-            t.comments = (dc && (dc.items || dc.comments || dc)) || [];
-            // ensure array
-            if (!Array.isArray(t.comments)) t.comments = [];
-            // optional: sort by createdAt
-            t.comments.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-          } catch (err) {
-            t.comments = t.comments || [];
-          }
-        }));
-
-        setThreads(items);
-      } catch (e) {
-        console.error(e);
-      } finally {
+    setLoading(true);
+    let url = `${API}/api/threads`;
+    if (category) url += `?category=${category}`;
+    fetch(url)
+      .then(res => res.json())
+      .then(data => {
+        setThreads(data.items || []);
         setLoading(false);
-      }
-    })();
-  }, []);
-
+      });
+  }, [category]);
 
   const handleDelete = async (id) => {
     if (!window.confirm("ยืนยันการลบกระทู้?")) return;
@@ -189,23 +163,39 @@ export default function Thread() {
                       )}
                       <p className="mb-0">{t.body}</p>
 
-                      {/* ปุ่มลบเฉพาะเจ้าของ */}
-                      {user?.id === t.author?.id && (
-                        <div className="mt-2">
-                          <Link 
-                            to={`/threads/${t.id}/edit`}
-                            className="btn btn-outline-primary btn-sm me-2"
-                          >
-                            แก้ไขกระทู้
-                          </Link>
+                      <div className="mt-2 d-flex gap-2 thread-action-btns">
+                        {(user?.id === t.author?.id || user?.role === "admin") && (
+                          <>
+                            <Link to={`/threads/${t.id}/edit`} className="btn btn-outline-primary btn-sm">แก้ไขกระทู้</Link>
+                            <button className="btn btn-danger btn-sm" onClick={() => handleDelete(t.id)}>ลบกระทู้</button>
+                          </>
+                        )}
+                        {user && user?.id !== t.author?.id && user?.role !== "admin" && (
                           <button
-                            className="btn btn-danger btn-sm"
-                            onClick={() => handleDelete(t.id)}
+                            className="btn btn-warning btn-sm shadow-sm"
+                            onClick={async () => {
+                              const reason = prompt("โปรดระบุเหตุผลที่รายงานกระทู้นี้");
+                              if (!reason) return;
+                              const res = await fetch(`${API}/api/reports`, {
+                                method: "POST",
+                                headers: {
+                                  "Content-Type": "application/json",
+                                  "Authorization": `Bearer ${user.token}`
+                                },
+                                body: JSON.stringify({
+                                  threadId: t.id,
+                                  threadTitle: t.title,
+                                  reason
+                                })
+                              });
+                              if (res.ok) alert("รายงานสำเร็จ");
+                              else alert("รายงานไม่สำเร็จ");
+                            }}
                           >
-                            ลบกระทู้
+                            <i className="bi bi-flag"></i> รายงาน
                           </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
 
                       {/* แสดงคอมเมนต์ ถ้ามี */}
                       {(t.comments && t.comments.length > 0) && (

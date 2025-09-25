@@ -1,23 +1,40 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../auth";
+import { useNavigate } from "react-router-dom";
 
 // เพิ่มการประกาศ API URL
 const API = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
 export default function EditProfile() {
   const { user, signIn } = useAuth();
+  const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [avatar, setAvatar] = useState(null);
   const [preview, setPreview] = useState("");
   const [loading, setLoading] = useState(false);
+  const [bio, setBio] = useState("");
+  const [socialLink, setSocialLink] = useState("");
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [pwLoading, setPwLoading] = useState(false);
+
+  // เก็บค่าเดิมไว้เปรียบเทียบ
+  const [original, setOriginal] = useState({});
 
   useEffect(() => {
     if (user) {
       setUsername(user.username || "");
       setEmail(user.email || "");
-      // ตั้งค่า preview จาก user.avatarUrl
+      setBio(user.bio || "");
+      setSocialLink(user.socialLink || "");
       setPreview(user.avatarUrl ? `${API}${user.avatarUrl}` : `${API}/static/avatars/default.png`);
+      setOriginal({
+        username: user.username || "",
+        bio: user.bio || "",
+        socialLink: user.socialLink || "",
+        avatarUrl: user.avatarUrl || "/static/avatars/default.png"
+      });
     }
   }, [user]);
 
@@ -34,11 +51,26 @@ export default function EditProfile() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;
+
+    // ตรวจสอบว่ามีการเปลี่ยนแปลงหรือไม่
+    const isChanged =
+      username !== original.username ||
+      bio !== original.bio ||
+      socialLink !== original.socialLink ||
+      avatar !== null;
+
+    if (!isChanged) {
+      alert("ไม่มีการเปลี่ยนแปลงข้อมูล");
+      return;
+    }
+
     setLoading(true);
 
     try {
       const formData = new FormData();
       formData.append("username", username);
+      formData.append("bio", bio);
+      formData.append("socialLink", socialLink);
       if (avatar) {
         formData.append("avatar", avatar);
       }
@@ -48,19 +80,45 @@ export default function EditProfile() {
         headers: {
           "Authorization": `Bearer ${user.token}`
         },
-        body: formData  // ส่ง FormData แทน JSON
+        body: formData
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "แก้ไขไม่สำเร็จ");
 
-      // อัพเดต user ใน context
       signIn({ ...user, ...data.user });
       alert("บันทึกการเปลี่ยนแปลงแล้ว");
+      navigate("/thread");
     } catch (err) {
       alert(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ฟังก์ชันเปลี่ยนรหัสผ่าน
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    if (pwLoading) return;
+    setPwLoading(true);
+    try {
+      const res = await fetch(`${API}/api/users/${user.id}/change-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${user.token}`
+        },
+        body: JSON.stringify({ oldPassword, newPassword })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "เปลี่ยนรหัสผ่านไม่สำเร็จ");
+      alert("เปลี่ยนรหัสผ่านสำเร็จ");
+      setOldPassword("");
+      setNewPassword("");
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setPwLoading(false);
     }
   };
 
@@ -115,8 +173,56 @@ export default function EditProfile() {
                 />
               </div>
 
+              <div className="mb-3">
+                <label className="form-label">Bio</label>
+                <textarea
+                  className="form-control"
+                  value={bio}
+                  onChange={e => setBio(e.target.value)}
+                  rows={2}
+                />
+              </div>
+              <div className="mb-3">
+                <label className="form-label">Social Link</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  value={socialLink}
+                  onChange={e => setSocialLink(e.target.value)}
+                  placeholder="https://twitter.com/yourname"
+                />
+              </div>
+
               <button className="btn btn-primary" disabled={loading}>
                 {loading ? "กำลังบันทึก..." : "บันทึกการเปลี่ยนแปลง"}
+              </button>
+            </form>
+            <hr />
+            <h5 className="mb-3">เปลี่ยนรหัสผ่าน</h5>
+            <form onSubmit={handleChangePassword}>
+              <div className="mb-2">
+                <label className="form-label">รหัสผ่านเดิม</label>
+                <input
+                  type="password"
+                  className="form-control"
+                  value={oldPassword}
+                  onChange={e => setOldPassword(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="mb-2">
+                <label className="form-label">รหัสผ่านใหม่</label>
+                <input
+                  type="password"
+                  className="form-control"
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  required
+                  minLength={6}
+                />
+              </div>
+              <button className="btn btn-warning" disabled={pwLoading}>
+                {pwLoading ? "กำลังเปลี่ยน..." : "เปลี่ยนรหัสผ่าน"}
               </button>
             </form>
           </div>

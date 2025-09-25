@@ -15,6 +15,8 @@ model User {
   passHash  String
   role      String    @default("user")
   avatarUrl String    @default("/static/avatars/default.png")
+  bio       String?   // เพิ่ม bio
+  socialLink String?  // เพิ่ม socialLink
   createdAt DateTime  @default(now())
   threads   Thread[]
   comments  Comment[]
@@ -31,6 +33,8 @@ model Thread {
   comments  Comment[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+  categoryId Int?
+  category   Category? @relation(fields: [categoryId], references: [id])
 }
 
 model Comment {
@@ -42,4 +46,10 @@ model Comment {
   thread    Thread   @relation(fields: [threadId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Category {
+  id      Int      @id @default(autoincrement())
+  name    String   @unique
+  threads Thread[]
 }
