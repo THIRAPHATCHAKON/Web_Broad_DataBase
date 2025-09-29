@@ -50,8 +50,8 @@ export default function Dashboard() {
           </tr>
         </thead>
         <tbody>
-          {stats.dailyUsers.map(d => (
-            <tr key={d.date}>
+          {stats.dailyUsers.map((d, index) => (
+            <tr key={`${d.date}-${index}`}>
               <td>{d.date}</td>
               <td>{d.count}</td>
             </tr>

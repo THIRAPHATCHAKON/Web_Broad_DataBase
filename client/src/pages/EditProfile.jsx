@@ -11,7 +11,7 @@ export default function EditProfile() {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [avatar, setAvatar] = useState(null);
-  const [preview, setPreview] = useState("");
+  const [preview, setPreview] = useState(`${API}/static/avatars/default.png`);
   const [loading, setLoading] = useState(false);
   const [bio, setBio] = useState("");
   const [socialLink, setSocialLink] = useState("");

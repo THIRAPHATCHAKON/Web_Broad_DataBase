@@ -18,7 +18,7 @@ mongoose.connect(process.env.MONGODB_URI || "mongodb://localhost:27017/miniforum
 
 /* ---------- middlewares ---------- */
 // อนุญาติ CORS จาก frontend
-app.use(cors({ origin: "http://localhost:5173", credentials: true })); 
+app.use(cors({ origin: ["http://localhost:5173", "http://localhost:5174"], credentials: true })); 
 app.use(express.json()); // parse JSON body
 app.use(cookieParser()); // parse cookies
 
@@ -499,6 +499,73 @@ app.get("/api/reports", async (req, res) => {
   res.json({ ok: true, reports });
 });
 
+// API แก้ไขรายงาน - เฉพาะ admin
+app.put("/api/reports/:id", async (req, res) => {
+  const auth = req.headers.authorization || "";
+  const token = auth.replace(/^Bearer\s+/i, "");
+  let user = null;
+  try {
+    // ตรวจสอบ JWT token
+    user = jwt.verify(token, process.env.JWT_SECRET || "changeme");
+  } catch {
+    return res.status(401).json({ ok: false, message: "Invalid token" });
+  }
+  // ตรวจสอบว่าเป็น admin
+  if (user.role !== "admin") return res.status(403).json({ ok: false, message: "forbidden" });
+
+  const { reason } = req.body;
+  if (!reason || !reason.trim()) {
+    return res.status(400).json({ ok: false, message: "ต้องระบุเหตุผลในการรายงาน" });
+  }
+
+  try {
+    // อัปเดตรายงานใน MongoDB
+    const report = await Report.findByIdAndUpdate(
+      req.params.id, 
+      { reason: reason.trim() }, 
+      { new: true }
+    );
+    
+    if (!report) {
+      return res.status(404).json({ ok: false, message: "ไม่พบรายงาน" });
+    }
+
+    res.json({ ok: true, report });
+  } catch (error) {
+    console.error("Error updating report:", error);
+    res.status(500).json({ ok: false, message: "แก้ไขรายงานไม่สำเร็จ" });
+  }
+});
+
+// API ลบรายงาน - เฉพาะ admin
+app.delete("/api/reports/:id", async (req, res) => {
+  const auth = req.headers.authorization || "";
+  const token = auth.replace(/^Bearer\s+/i, "");
+  let user = null;
+  try {
+    // ตรวจสอบ JWT token
+    user = jwt.verify(token, process.env.JWT_SECRET || "changeme");
+  } catch {
+    return res.status(401).json({ ok: false, message: "Invalid token" });
+  }
+  // ตรวจสอบว่าเป็น admin
+  if (user.role !== "admin") return res.status(403).json({ ok: false, message: "forbidden" });
+
+  try {
+    // ลบรายงานจาก MongoDB
+    const report = await Report.findByIdAndDelete(req.params.id);
+    
+    if (!report) {
+      return res.status(404).json({ ok: false, message: "ไม่พบรายงาน" });
+    }
+
+    res.json({ ok: true, message: "ลบรายงานสำเร็จ" });
+  } catch (error) {
+    console.error("Error deleting report:", error);
+    res.status(500).json({ ok: false, message: "ลบรายงานไม่สำเร็จ" });
+  }
+});
+
 /* ---------- admin ---------- */
 // API ดึงข้อมูล dashboard สำหรับ admin - สถิติต่างๆ
 app.get("/api/admin/dashboard", async (req, res) => {
@@ -520,21 +587,30 @@ app.get("/api/admin/dashboard", async (req, res) => {
   const threadCount = await prisma.thread.count();
 
   // สถิติผู้ใช้ใหม่ในแต่ละวัน (7 วันล่าสุด)
-  const dailyUsers = await prisma.user.groupBy({
-    by: ['createdAt'],
-    _count: { id: true },
+  const users = await prisma.user.findMany({
+    select: { createdAt: true },
     orderBy: { createdAt: 'desc' },
-    take: 7,
+    take: 100, // เพิ่มจำนวนเพื่อให้ครอบคลุม 7 วันล่าสุด
   });
+
+  // จัดกลุ่มผู้ใช้ตามวันที่
+  const dailyUsersMap = new Map();
+  users.forEach(user => {
+    const date = user.createdAt.toISOString().slice(0, 10);
+    dailyUsersMap.set(date, (dailyUsersMap.get(date) || 0) + 1);
+  });
+
+  // แปลงเป็น array และเรียงตามวันที่ล่าสุด แล้วเอาแค่ 7 วันล่าสุด
+  const dailyUsers = Array.from(dailyUsersMap.entries())
+    .map(([date, count]) => ({ date, count }))
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 7);
 
   res.json({
     ok: true,
     userCount,
     threadCount,
-    dailyUsers: dailyUsers.map(d => ({
-      date: d.createdAt.toISOString().slice(0, 10),
-      count: d._count.id
-    }))
+    dailyUsers
   });
 });
 
