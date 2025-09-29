@@ -1225,24 +1225,130 @@ app.get("/api/logs", async (req, res) => {
   });
 });
 
-// API รีเซ็ตรหัสผ่าน - รับ email และรหัสผ่านใหม่
-app.post("/api/forgot-password", async (req, res) => {
-  const email = req.body.email;
-  const newPassword = req.body.newPassword;
-  // ตรวจสอบข้อมูลที่จำเป็น
-  if (!email || !newPassword) {
-    return res.status(400).json({ ok: false, message: "ข้อมูลไม่ครบ" });
+// 🔍 API ยืนยันอีเมล - ตรวจสอบว่าอีเมลมีอยู่ในระบบหรือไม่ (สำหรับ Forgot Password Step 1)
+app.post("/api/verify-email", authLimiter, async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    // 📝 ตรวจสอบข้อมูลที่จำเป็น
+    if (!email) {
+      return res.status(400).json({ 
+        ok: false, 
+        message: "กรุณาระบุอีเมล" 
+      });
+    }
+
+    // 🔍 ตรวจสอบ email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ 
+        ok: false, 
+        message: "รูปแบบอีเมลไม่ถูกต้อง" 
+      });
+    }
+
+    // 📊 ค้นหา user จากอีเมลใน database
+    const user = await prisma.user.findUnique({ 
+      where: { email: email.toLowerCase().trim() },
+      select: { id: true, email: true, username: true } // เลือกเฉพาะข้อมูลที่จำเป็น
+    });
+
+    if (!user) {
+      return res.status(404).json({ 
+        ok: false, 
+        message: "ไม่พบอีเมลนี้ในระบบ กรุณาตรวจสอบความถูกต้อง" 
+      });
+    }
+
+    // 📝 บันทึก activity log
+    await ActivityLog.create({
+      action: "email_verify_attempt",
+      userId: user.id,
+      email: user.email,
+      userAgent: req.get('User-Agent'),
+      ip: req.ip,
+      timestamp: new Date()
+    });
+
+    // ✅ พบอีเมลแล้ว - ส่งข้อมูลยืนยัน (ไม่ส่งข้อมูลละเอียด)
+    res.json({ 
+      ok: true, 
+      message: "พบอีเมลในระบบ สามารถดำเนินการขั้นตอนถัดไป",
+      email: email.toLowerCase().trim()
+    });
+  } catch (error) {
+    console.error("Error in verify-email:", error);
+    res.status(500).json({ 
+      ok: false, 
+      message: "เกิดข้อผิดพลาดในการตรวจสอบอีเมล" 
+    });
   }
+});
 
-  // ค้นหา user จาก email
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) return res.status(404).json({ ok: false, message: "ไม่พบผู้ใช้" });
-  
-  // เข้ารหัสรหัสผ่านใหม่และอัปเดต
-  const passHash = await bcrypt.hash(newPassword, 10);
-  await prisma.user.update({ where: { email }, data: { passHash } });
+// 🔒 API รีเซ็ตรหัสผ่าน - รับ email และรหัสผ่านใหม่ (Forgot Password Step 2)
+app.post("/api/forgot-password", authLimiter, async (req, res) => {
+  try {
+    const { email, newPassword } = req.body;
 
-  res.json({ ok: true, message: "เปลี่ยนรหัสผ่านสำเร็จ" });
+    // 📝 ตรวจสอบข้อมูลที่จำเป็น
+    if (!email || !newPassword) {
+      return res.status(400).json({ 
+        ok: false, 
+        message: "กรุณาระบุอีเมลและรหัสผ่านใหม่" 
+      });
+    }
+
+    // 🔍 ตรวจสอบความยาวรหัสผ่าน
+    if (newPassword.length < 6) {
+      return res.status(400).json({ 
+        ok: false, 
+        message: "รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร" 
+      });
+    }
+
+    // 📊 ค้นหา user จากอีเมล
+    const user = await prisma.user.findUnique({ 
+      where: { email: email.toLowerCase().trim() } 
+    });
+    
+    if (!user) {
+      return res.status(404).json({ 
+        ok: false, 
+        message: "ไม่พบผู้ใช้งานที่มีอีเมลนี้" 
+      });
+    }
+
+    // 🔒 เข้ารหัสรหัสผ่านใหม่และอัปเดตในฐานข้อมูล
+    const passHash = await bcrypt.hash(newPassword, 12); // เพิ่ม salt rounds เป็น 12
+    await prisma.user.update({ 
+      where: { email: email.toLowerCase().trim() }, 
+      data: { 
+        passHash // อัปเดตรหัสผ่านใหม่
+      } 
+    });
+
+    // 📝 บันทึก activity log
+    await ActivityLog.create({
+      action: "password_reset_success",
+      userId: user.id,
+      email: user.email,
+      userAgent: req.get('User-Agent'),
+      ip: req.ip,
+      timestamp: new Date()
+    });
+
+    // ✅ รีเซ็ตรหัสผ่านสำเร็จ
+    res.json({ 
+      ok: true, 
+      message: "รีเซ็ตรหัสผ่านสำเร็จ กรุณาเข้าสู่ระบบด้วยรหัสผ่านใหม่" 
+    });
+  } catch (error) {
+    console.error("Error in forgot-password:", error);
+    res.status(500).json({ 
+      ok: false, 
+      message: "เกิดข้อผิดพลาดในการรีเซ็ตรหัสผ่าน" 
+    });
+  }
 });
 
 // ฟังก์ชันตรวจสอบ JWT token สำหรับ middleware

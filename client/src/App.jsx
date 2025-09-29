@@ -25,6 +25,7 @@ import ReportList from "./pages/ReportList.jsx";      // หน้าดูร�
 import ManageRoles from "./pages/ManageRoles.jsx";    // หน้าจัดการสิทธิ์ผู้ใช้ (Admin)
 import Dashboard from "./pages/Dashboard.jsx";        // หน้า Dashboard (Admin)
 import ForgotPassword from "./pages/ForgotPassword.jsx"; // หน้าลืมรหัสผ่าน
+import ResetPassword from "./pages/ResetPassword.jsx"; // หน้าตั้งรหัสผ่านใหม่
 
 // 🧩 นำเข้า Components ที่ใช้ร่วมกัน
 import Header from "./pages/Header.jsx";              // แถบด้านบน (เมนู, โปรไฟล์)
@@ -80,6 +81,10 @@ export default function App() {
       <Route
         path="/forgot-password"
         element={<Layout><ForgotPassword /></Layout>}
+      />
+      <Route
+        path="/reset-password"
+        element={<Layout><ResetPassword /></Layout>}
       />
 
       <Route
