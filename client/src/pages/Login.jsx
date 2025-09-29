@@ -1,9 +1,8 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth.jsx"; // 👈 path ให้ตรงไฟล์จริง
-
 export default function Login() {
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
@@ -18,11 +17,11 @@ export default function Login() {
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({ username: username.trim(), password }),
       });
 
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok) throw new Error(data.message || "อีเมลหรือรหัสผ่านไม่ถูกต้อง");
+      if (!res.ok || !data.ok) throw new Error(data.message || "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง");
 
       // 👇 อัปเดต context + localStorage ภายใน signIn
       signIn(data.user);
@@ -41,9 +40,9 @@ export default function Login() {
         <h3 className="text-center mb-3">เข้าสู่ระบบ</h3>
         <form id="login-form" onSubmit={onSubmit}>
           <div className="mb-3">
-            <label className="form-label" htmlFor="login-email">อีเมล</label>
-            <input type="email" className="form-control" id="login-email"
-              value={email} onChange={(e) => setEmail(e.target.value)}
+            <label className="form-label" htmlFor="login-email">ชื่อผู้ใช้</label>
+            <input type="text" className="form-control" id="reg-username"
+              value={username} onChange={(e) => setUsername(e.target.value)}
               required autoComplete="username" />
           </div>
           <div className="mb-3">
@@ -56,7 +55,7 @@ export default function Login() {
             {submitting ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
           </button>
           <p className="text-center mt-3">
-            ยังไม่มีบัญชี? <Link to="/register">สมัครสมาชิก</Link>
+            ยังไม่มีบัญชี? <Link to="/register">สมัครสมาชิก</Link> <Link to="/forgot-password">ลืมรหัสผ่าน?</Link>
           </p>
         </form>
       </div>

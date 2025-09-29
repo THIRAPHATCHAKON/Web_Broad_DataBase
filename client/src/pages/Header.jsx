@@ -64,7 +64,7 @@ export default function Header() {
                 height="32"
                 className="rounded-circle me-2"
               />
-              <span className="small">{user.email}</span>
+              <span className="small">{user.username}</span>
             </a>
             <ul className="dropdown-menu dropdown-menu-end">
               <li><Link className="dropdown-item" to="/edit_profile">EditProfile</Link></li>

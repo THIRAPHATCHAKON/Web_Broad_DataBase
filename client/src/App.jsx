@@ -10,6 +10,7 @@ import ManageCategories from "./pages/ManageCategories.jsx";
 import ReportList from "./pages/ReportList.jsx";
 import ManageRoles from "./pages/ManageRoles.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
+import ForgotPassword from "./pages/ForgotPassword.jsx";
 
 function PrivateRoute({ children }) {
   const { user, ready } = useAuth();
@@ -35,6 +36,7 @@ export default function App() {
       <Route path="/report_list" element={<PrivateRoute><ReportList /></PrivateRoute>} />
       <Route path="/manage_roles" element={<PrivateRoute><ManageRoles /></PrivateRoute>} />
       <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
