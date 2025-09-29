@@ -1,55 +1,82 @@
-// server/prisma/schema.prisma
+/*
+ * ==================================================================================
+ * 🗄️ DATABASE SCHEMA - โครงสร้างฐานข้อมูล MySQL
+ * ==================================================================================
+ * 
+ * 🎯 วัตถุประสงค์: กำหนดโครงสร้างฐานข้อมูลหลักของระบบ Web Board
+ * 💾 ฐานข้อมูล: MySQL (เหมาะสำหรับข้อมูลที่มี relationship ซับซ้อน)
+ * 🔄 ORM: Prisma (จัดการ database operations อย่างปลอดภัย)
+ * 
+ * ==================================================================================
+ */
+
+// 🔧 การตั้งค่า Prisma Client Generator
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client-js"  // ใช้ JavaScript client
 }
 
+// 🗄️ การเชื่อมต่อฐานข้อมูล
 datasource db {
-  provider = "mysql"
-  url      = env("DATABASE_URL")
+  provider = "mysql"                    // ใช้ MySQL database
+  url      = env("DATABASE_URL")        // URL เชื่อมต่อจาก environment variable
 }
 
+// 👤 ตาราง User - ข้อมูลผู้ใช้งานระบบ
 model User {
-  id        Int       @id @default(autoincrement())
-  email     String    @unique
-  username  String?   @unique
-  passHash  String
-  role      String    @default("user")
-  avatarUrl String    @default("/static/avatars/default.png")
-  bio       String?   // เพิ่ม bio
-  socialLink String?  // เพิ่ม socialLink
-  createdAt DateTime  @default(now())
-  threads   Thread[]
-  comments  Comment[]
+  id        Int       @id @default(autoincrement())              // 🆔 Primary Key (เลขที่เพิ่มอัตโนมัติ)
+  email     String    @unique                                   // 📧 Email (ต้องไม่ซ้ำ, ใช้เข้าสู่ระบบ)
+  username  String?   @unique                                   // 👤 ชื่อผู้ใช้ (ต้องไม่ซ้ำ, อาจเป็น null)
+  passHash  String                                              // 🔐 รหัสผ่านที่เข้ารหัสแล้ว (bcrypt)
+  role      String    @default("user")                          // 🏷️ บทบาท (user/admin)
+  avatarUrl String    @default("/static/avatars/default.png")   // 🖼️ URL รูปโปรไฟล์
+  bio       String?                                             // 📝 ข้อมูลส่วนตัว (optional)
+  socialLink String?                                            // 🔗 ลิงก์โซเชียล (optional)
+  createdAt DateTime  @default(now())                           // ⏰ วันที่สมัครสมาชิก
+  
+  // 🔗 Relationships - ความสัมพันธ์กับตารางอื่น
+  threads   Thread[]                                            // กระทู้ที่สร้าง (1 user : many threads)
+  comments  Comment[]                                           // คอมเมนต์ที่โพสต์ (1 user : many comments)
 }
 
+// 💬 ตาราง Thread - ข้อมูลกระทู้/โพสต์
 model Thread {
-  id        Int       @id @default(autoincrement())
-  title     String
-  body      String
-  tags      String?
-  coverUrl  String?
-  authorId  Int
-  author    User      @relation(fields: [authorId], references: [id])
-  comments  Comment[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  categoryId Int?
-  category   Category? @relation(fields: [categoryId], references: [id])
+  id        Int       @id @default(autoincrement())              // 🆔 Primary Key (เลขที่เพิ่มอัตโนมัติ)
+  title     String                                              // 📝 หัวข้อกระทู้
+  body      String                                              // 📄 เนื้อหากระทู้
+  tags      String?                                             // 🏷️ แท็ก (optional, คั่นด้วยจุลภาค)
+  coverUrl  String?                                             // 🖼️ URL รูปปกกระทู้ (optional)
+  authorId  Int                                                 // 👤 ID ของผู้เขียน (Foreign Key)
+  categoryId Int?                                               // 📂 ID ของหมวดหมู่ (optional)
+  createdAt DateTime  @default(now())                           // ⏰ วันเวลาที่สร้าง
+  updatedAt DateTime  @updatedAt                                // ⏰ วันเวลาที่แก้ไขล่าสุด (auto-update)
+  
+  // 🔗 Relationships - ความสัมพันธ์กับตารางอื่น
+  author    User      @relation(fields: [authorId], references: [id])    // ผู้เขียน (many threads : 1 user)
+  category  Category? @relation(fields: [categoryId], references: [id])  // หมวดหมู่ (many threads : 1 category)
+  comments  Comment[]                                                    // คอมเมนต์ (1 thread : many comments)
 }
 
+// 💭 ตาราง Comment - ข้อมูลความคิดเห็น/ตอบกลับ
 model Comment {
-  id        Int      @id @default(autoincrement())
-  body      String
-  authorId  Int
-  threadId  Int
-  author    User     @relation(fields: [authorId], references: [id])
-  thread    Thread   @relation(fields: [threadId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id        Int      @id @default(autoincrement())              // 🆔 Primary Key (เลขที่เพิ่มอัตโนมัติ)
+  body      String   @db.Text                                  // 📝 เนื้อหาความคิดเห็น (ใช้ Text สำหรับข้อความยาว)
+  imageUrl  String?                                            // 🖼️ URL รูปภาพประกอบ (optional)
+  createdAt DateTime @default(now())                           // ⏰ วันเวลาที่แสดงความคิดเห็น
+  
+  // 🔗 Foreign Keys - เชื่อมโยงกับตารางอื่น
+  threadId  Int                                                // 💬 ID ของกระทู้ที่แสดงความคิดเห็น
+  authorId  Int                                                // 👤 ID ของผู้แสดงความคิดเห็น
+  
+  // 🔗 Relationships - ความสัมพันธ์กับตารางอื่น (Cascade Delete)
+  thread    Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)  // กระทู้ (ลบกระทู้ = ลบคอมเมนต์)
+  author    User   @relation(fields: [authorId], references: [id], onDelete: Cascade)  // ผู้เขียน (ลบ user = ลบคอมเมนต์)
 }
 
+// 📂 ตาราง Category - หมวดหมู่ของกระทู้
 model Category {
-  id      Int      @id @default(autoincrement())
-  name    String   @unique
-  threads Thread[]
+  id      Int      @id @default(autoincrement())              // 🆔 Primary Key (เลขที่เพิ่มอัตโนมัติ)  
+  name    String   @unique                                   // 📝 ชื่อหมวดหมู่ (ต้องไม่ซ้ำ)
+  
+  // 🔗 Relationships - ความสัมพันธ์กับตารางอื่น
+  threads Thread[]                                           // กระทู้ในหมวดหมู่ (1 category : many threads)
 }

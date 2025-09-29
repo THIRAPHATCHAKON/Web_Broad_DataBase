@@ -1,41 +1,69 @@
+# 🐳 Docker Compose Configuration สำหรับ Web Board Database System
+# ไฟล์นี้กำหนดการตั้งค่า containers ทั้งหมดที่จำเป็นสำหรับการรันระบบ
+# รวมถึง MySQL database, MongoDB, และ web management tools
+
 services:
+  # 🗄️ MySQL Database Service - ฐานข้อมูลหลักสำหรับเก็บข้อมูลผู้ใช้, กระทู้, คอมเมนต์
   db:
-    image: mysql:8.0        # ถ้าอยากใช้ MariaDB: mariadb:10.11
-    container_name: mini_forum_db
+    image: mysql:8.0        # ใช้ MySQL version 8.0 (ถ้าอยากใช้ MariaDB: mariadb:10.11)
+    container_name: mini_forum_db  # ชื่อ container ที่จะสร้าง
     environment:
-      MYSQL_ROOT_PASSWORD: example
-      MYSQL_DATABASE: mini_forum
-      TZ: Asia/Bangkok
+      # การตั้งค่าสิ่งแวดล้อมสำหรับ MySQL
+      MYSQL_ROOT_PASSWORD: example    # รหัสผ่าน root ของ MySQL
+      MYSQL_DATABASE: mini_forum      # ชื่อฐานข้อมูลที่จะสร้างขึ้นมาอัตโนมัติ
+      TZ: Asia/Bangkok               # ตั้งเวลาเป็นเขตเวลาประเทศไทย
     ports:
-      - "3306:3306"
+      - "3306:3306"                  # เปิด port 3306 ให้เข้าถึงจากภายนอก container
     volumes:
-      - dbdata:/var/lib/mysql
+      - dbdata:/var/lib/mysql        # เก็บข้อมูลใน volume เพื่อไม่ให้หายเมื่อ restart
+  # 🔧 Adminer - เครื่องมือจัดการฐานข้อมูล MySQL ผ่าน web interface
   adminer:
-    image: adminer
-    container_name: mini_forum_adminer
+    image: adminer                     # ใช้ official Adminer image
+    container_name: mini_forum_adminer # ชื่อ container สำหรับ Adminer
     ports:
-      - "8080:8080"
+      - "8080:8080"                   # เข้าถึงผ่าน http://localhost:8080
+  # 🍃 MongoDB Service - NoSQL database สำหรับเก็บ logs, reports และข้อมูลที่ไม่มีโครงสร้างแน่นอน
   mongo:
-    image: mongo:6
-    container_name: mini_forum_mongo
+    image: mongo:6                     # ใช้ MongoDB version 6
+    container_name: mini_forum_mongo   # ชื่อ container สำหรับ MongoDB
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: example
-      TZ: Asia/Bangkok
+      # การตั้งค่าสิ่งแวดล้อมสำหรับ MongoDB
+      MONGO_INITDB_ROOT_USERNAME: root       # Username สำหรับ admin
+      MONGO_INITDB_ROOT_PASSWORD: example    # Password สำหรับ admin
+      TZ: Asia/Bangkok                       # ตั้งเวลาเป็นเขตเวลาประเทศไทย
     ports:
-      - "27017:27017"
+      - "27017:27017"                # เปิด port 27017 (default port ของ MongoDB)
     volumes:
-      - mongodata:/data/db
+      - mongodata:/data/db           # เก็บข้อมูล MongoDB ใน volume
+  # 🌐 Mongo Express - เครื่องมือจัดการ MongoDB ผ่าน web interface
   mongo-express:
-    image: mongo-express
-    container_name: mini_forum_mongo_express
+    image: mongo-express                        # ใช้ official Mongo Express image
+    container_name: mini_forum_mongo_express    # ชื่อ container สำหรับ Mongo Express
     environment:
-      ME_CONFIG_MONGODB_ADMINUSERNAME: root
-      ME_CONFIG_MONGODB_ADMINPASSWORD: example
-      ME_CONFIG_MONGODB_SERVER: mongo
-      ME_CONFIG_BASICAUTH: "false"
+      # การตั้งค่าการเชื่อมต่อไปยัง MongoDB
+      ME_CONFIG_MONGODB_ADMINUSERNAME: root     # Username สำหรับเข้าถึง MongoDB
+      ME_CONFIG_MONGODB_ADMINPASSWORD: example  # Password สำหรับเข้าถึง MongoDB  
+      ME_CONFIG_MONGODB_SERVER: mongo           # ชื่อ container ของ MongoDB ที่จะเชื่อมต่อ
+      ME_CONFIG_BASICAUTH: "false"              # ปิด basic authentication เพื่อความสะดวก
     ports:
-      - "8081:8081"
+      - "8081:8081"                            # เข้าถึงผ่าน http://localhost:8081
+# 💾 Docker Volumes - การจัดเก็บข้อมูลถาวรสำหรับ databases
+# Volumes เหล่านี้จะเก็บข้อมูลไว้แม้ว่า containers จะถูกลบหรือ restart
 volumes:
-  dbdata:
-  mongodata:
+  dbdata:      # Volume สำหรับเก็บข้อมูล MySQL database
+  mongodata:   # Volume สำหรับเก็บข้อมูล MongoDB database
+
+# 🚀 คำสั่งการใช้งาน:
+# 1. เริ่มต้นทุก services: docker-compose up -d
+# 2. หยุดทุก services: docker-compose down  
+# 3. ดูสถานะ: docker-compose ps
+# 4. ดู logs: docker-compose logs [service_name]
+# 5. เข้าสู่ container: docker exec -it [container_name] bash
+#
+# 📱 Web Interfaces:
+# - Adminer (MySQL): http://localhost:8080
+# - Mongo Express: http://localhost:8081
+#
+# 🔌 Database Connections:
+# - MySQL: localhost:3306 (user: root, password: example, database: mini_forum)
+# - MongoDB: mongodb://root:example@localhost:27017

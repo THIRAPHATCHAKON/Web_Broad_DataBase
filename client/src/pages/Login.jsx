@@ -1,32 +1,56 @@
+/*
+ * ==================================================================================
+ * 🔐 LOGIN PAGE - หน้าเข้าสู่ระบบ
+ * ==================================================================================
+ * 
+ * 🎯 วัตถุประสงค์: รับข้อมูลการเข้าสู่ระบบและตรวจสอบกับเซิร์ฟเวอร์
+ * 🔒 ความปลอดภัย: Hash password ตรวจสอบที่เซิร์ฟเวอร์
+ * 🎨 UX/UI: Loading state, Error handling, Responsive design
+ * 
+ * ==================================================================================
+ */
+
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useAuth } from "../auth.jsx"; // 👈 path ให้ตรงไฟล์จริง
-export default function Login() {
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const navigate = useNavigate();
-  const { signIn } = useAuth(); // 👈 ใช้ context
+import { useAuth } from "../auth.jsx";
 
+export default function Login() {
+  // 📝 State สำหรับเก็บข้อมูล form
+  const [username, setUsername] = useState("");           // ชื่อผู้ใช้
+  const [password, setPassword] = useState("");           // รหัสผ่าน
+  const [submitting, setSubmitting] = useState(false);    // สถานะการส่งข้อมูล (ป้องกันการกดซ้ำ)
+  
+  // 🛠️ Hooks สำหรับการนำทาง และการจัดการการเข้าสู่ระบบ
+  const navigate = useNavigate();
+  const { signIn } = useAuth();
+
+  // 🚀 ฟังก์ชันจัดการการส่ง form เข้าสู่ระบบ
   async function onSubmit(e) {
-    e.preventDefault();
-    if (submitting) return;
-    setSubmitting(true);
+    e.preventDefault();                                   // ป้องกันการ refresh หน้า
+    if (submitting) return;                               // ป้องกันการส่งซ้ำ
+    setSubmitting(true);                                  // ตั้งสถานะเป็นกำลังส่ง
 
     try {
+      // 📡 ส่งข้อมูลการเข้าสู่ระบบไปยังเซิร์ฟเวอร์
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: username.trim(), password }),
+        body: JSON.stringify({ 
+          username: username.trim(),                      // ตัดช่องว่างหน้า-หลัง
+          password 
+        }),
       });
 
+      // 🎯 ตรวจสอบผลลัพธ์จากเซิร์ฟเวอร์
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok) throw new Error(data.message || "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง");
+      if (!res.ok || !data.ok) {
+        throw new Error(data.message || "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง");
+      }
 
-      // 👇 อัปเดต context + localStorage ภายใน signIn
-      signIn(data.user);
-
-      navigate("/thread", { replace: true });
+      // ✅ เข้าสู่ระบบสำเร็จ - บันทึกข้อมูลผู้ใช้และนำทางไปหน้าหลัก
+      signIn(data.user);                                  // บันทึกข้อมูลใน context และ localStorage
+      navigate("/thread", { replace: true });            // ไปหน้ากระทู้ (replace เพื่อไม่ให้กลับมาหน้า login)
+      
     } catch (err) {
       alert(err.message || "เกิดข้อผิดพลาดในการเข้าสู่ระบบ");
     } finally {

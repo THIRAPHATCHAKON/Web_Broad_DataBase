@@ -1,16 +1,33 @@
+/*
+ * ==================================================================================
+ * 👤 EDIT PROFILE PAGE - หน้าแก้ไขโปรไฟล์ผู้ใช้
+ * ==================================================================================
+ * 
+ * 🎯 วัตถุประสงค์: ให้ผู้ใช้แก้ไขข้อมูลส่วนตัว เช่น ชื่อ, อีเมล, รูปโปรไฟล์, ประวัติ
+ * 🔐 ความปลอดภัย: ต้องเข้าสู่ระบบแล้วถึงจะแก้ไขได้
+ * 🎨 ฟีเจอร์: อัปโหลดอวตาร์, แก้ไขข้อมูลส่วนตัว, bio, ลิงก์โซเชียล
+ * 
+ * ==================================================================================
+ */
+
 import { useState, useEffect } from "react";
 import { useAuth } from "../auth";
 import { useNavigate } from "react-router-dom";
+import Header from "./Header";
+import Footer from "./Footer";
 
-// เพิ่มการประกาศ API URL
+// 🌐 กำหนด API URL จาก environment variable
 const API = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
 export default function EditProfile() {
-  const { user, signIn } = useAuth();
-  const navigate = useNavigate();
-  const [username, setUsername] = useState("");
-  const [email, setEmail] = useState("");
-  const [avatar, setAvatar] = useState(null);
+  // 🛠️ Hooks สำหรับ authentication และการนำทาง
+  const { user, signIn } = useAuth();           // ข้อมูลผู้ใช้และฟังก์ชันอัปเดต auth
+  const navigate = useNavigate();               // สำหรับการนำทางหลังแก้ไขเสร็จ
+  
+  // 📝 Form states - ข้อมูลโปรไฟล์ที่แก้ไข
+  const [username, setUsername] = useState("");  // ชื่อผู้ใช้
+  const [email, setEmail] = useState("");        // อีเมล
+  const [avatar, setAvatar] = useState(null);    // ไฟล์รูปอวตาร์ใหม่
   const [preview, setPreview] = useState(`${API}/static/avatars/default.png`);
   const [loading, setLoading] = useState(false);
   const [bio, setBio] = useState("");
@@ -124,6 +141,7 @@ export default function EditProfile() {
 
   return (
     <>
+    <Header />
       <div className="container my-4">
         <div className="card shadow-sm">
           <div className="card-body">

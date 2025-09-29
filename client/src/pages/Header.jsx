@@ -1,26 +1,44 @@
+/*
+ * ==================================================================================
+ * 📋 HEADER COMPONENT - แถบเมนูด้านบน
+ * ==================================================================================
+ * 
+ * 🎯 วัตถุประสงค์: แสดงเมนูหลัก, โลโก้, การจัดการผู้ใช้, และเมนูหมวดหมู่
+ * 🔐 ระบบสิทธิ์: แสดงเมนูต่างกันตาม role (user/admin)
+ * 📱 Responsive: Bootstrap navbar ที่รองรับทุกขนาดหน้าจอ
+ * 
+ * ==================================================================================
+ */
+
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth.jsx";
 import { useEffect, useState } from "react";
 
+// 🌐 กำหนด API URL จาก environment variable
 const API = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
 export default function Header() {
+  // 🛠️ Hooks สำหรับการนำทางและการจัดการการเข้าสู่ระบบ
   const nav = useNavigate();
   const { user, ready, signOut } = useAuth();
-  const [categories, setCategories] = useState([]);
-  const [loadingCategories, setLoadingCategories] = useState(true);
+  
+  // 📂 State สำหรับหมวดหมู่กระทู้
+  const [categories, setCategories] = useState([]);           // รายการหมวดหมู่ทั้งหมด
+  const [loadingCategories, setLoadingCategories] = useState(true); // สถานะการโหลดหมวดหมู่
 
+  // 🔄 โหลดรายการหมวดหมู่เมื่อ component mount
   useEffect(() => {
     fetch(`${API}/api/categories`)
-      .then(res => res.json())
-      .then(data => setCategories(data))
+      .then(res => res.json())                               // แปลง response เป็น JSON
+      .then(data => setCategories(data))                     // เก็บข้อมูลหมวดหมู่
       .catch(err => {
         console.error("โหลดหมวดหมู่ล้มเหลว", err);
-        setCategories([]);
+        setCategories([]);                                   // ตั้งค่าเป็น array ว่างถ้าโหลดไม่สำเร็จ
       })
-      .finally(() => setLoadingCategories(false));
+      .finally(() => setLoadingCategories(false));           // หยุดสถานะ loading
   }, []);
 
+  // ⏳ รอให้ auth context พร้อมก่อนแสดง header
   if (!ready) return null;
 
   return (

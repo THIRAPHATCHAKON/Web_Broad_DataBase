@@ -1,95 +1,322 @@
-// โหลด dependencies และ models
-const Report = require("./models/Report"); // MongoDB model สำหรับข้อมูลการรายงาน
-const express = require("express");
-const cors = require("cors");
-const path = require("path");
-const fs = require("fs");
-const cookieParser = require("cookie-parser");
-const multer = require("multer");                 
-const { PrismaClient } = require("@prisma/client"); // ORM สำหรับ MySQL
-const bcrypt = require("bcryptjs"); // เข้ารหัสรหัสผ่าน
-const jwt = require("jsonwebtoken"); // สร้าง JWT token
-const prisma = new PrismaClient();
+/*
+ * ==================================================================================
+ * WEB BOARD DATABASE - BACKEND SERVER
+ * ==================================================================================
+ * 
+ * 📋 คำอธิบาย: เซิร์ฟเวอร์หลักสำหรับระบบกระดานสนทนา (Web Board)
+ * 🔧 เทคโนโลยี: Node.js + Express.js + Prisma (MySQL) + Mongoose (MongoDB)
+ * 🚀 ฟีเจอร์: สมาชิก, กระทู้, คอมเมนต์, อัปโลดไฟล์, รายงาน, การจัดการผู้ใช้
+ * 
+ * ==================================================================================
+ */
+
+// 📦 โหลด dependencies และ models ที่จำเป็น
+const Report = require("./models/Report");        // MongoDB model สำหรับข้อมูลการรายงาน
+const express = require("express");               // Web framework หลัก
+const cors = require("cors");                     // จัดการ Cross-Origin Resource Sharing
+const path = require("path");                     // จัดการ path ของไฟล์
+const fs = require("fs");                         // จัดการไฟล์ระบบ
+const cookieParser = require("cookie-parser");     // จัดการ cookies
+const multer = require("multer");                 // จัดการการอัปโลดไฟล์
+const { PrismaClient } = require("@prisma/client"); // ORM สำหรับ MySQL database
+const bcrypt = require("bcryptjs");               // เข้ารหัสรหัสผ่านอย่างปลอดภัย
+const jwt = require("jsonwebtoken");              // สร้างและตรวจสอบ JWT tokens
+const rateLimit = require("express-rate-limit");   // ✅ จำกัดจำนวนการเรียก API
+const compression = require("compression");        // ✅ บีบอัดข้อมูลเพื่อลดขนาด
+const helmet = require("helmet");                 // ✅ เพิ่มความปลอดภัยด้วย HTTP headers
+
+// 🗄️ ตั้งค่า Prisma Client สำหรับ MySQL (ข้อมูลหลัก: users, threads, comments)
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL // URL สำหรับเชื่อมต่อ MySQL database
+    }
+  },
+  // ✅ Optimized logging: แสดง query ใน dev mode เท่านั้น
+  log: process.env.NODE_ENV === 'development' ? ['query', 'info', 'warn', 'error'] : ['error']
+});
+
+// 🚀 สร้าง Express application
 const app = express();
 
-// เชื่อมต่อ MongoDB สำหรับเก็บ reports
+// 📊 โหลด MongoDB model สำหรับ ActivityLog
+const ActivityLog = require("./models/ActivityLog");
+
+// 🍃 เชื่อมต่อ MongoDB สำหรับเก็บ reports และ activity logs
 const mongoose = require("mongoose");
 mongoose.connect(process.env.MONGODB_URI || "mongodb://localhost:27017/miniforum");
 
-/* ---------- middlewares ---------- */
-// อนุญาติ CORS จาก frontend
-app.use(cors({ origin: ["http://localhost:5173", "http://localhost:5174"], credentials: true })); 
-app.use(express.json()); // parse JSON body
-app.use(cookieParser()); // parse cookies
+/* ==================================================================================
+ * 🔒 RATE LIMITING CONFIGURATION - การจำกัดจำนวนการเรียก API
+ * ==================================================================================
+ * วัตถุประสงค์: ป้องกันการโจมตีแบบ DDoS และการใช้งาน API มากเกินไป
+ * ประเภท: แบ่งตาม endpoint เพื่อให้มีความยืดหยุ่น
+ */
 
-// เสิร์ฟไฟล์ static (รูปภาพ, avatar ฯลฯ)
-app.use("/static", express.static(path.join(__dirname, "../static")));
+// 🛡️ General Rate Limiting - สำหรับ API ทั่วไป (100 ครั้ง ใน 15 นาที)
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,   // หน้าต่างเวลา: 15 นาที
+  max: 100,                   // จำนวนครั้งสูงสุด: 100 requests per IP
+  message: {
+    ok: false,
+    message: "คำขอมากเกินไป กรุณาลองใหม่ในภายหลัง" // ข้อความเมื่อเกินลิมิต
+  },
+  standardHeaders: true,      // ส่ง rate limit headers
+  legacyHeaders: false,       // ไม่ใช้ headers แบบเก่า
+  skip: (req) => {
+    // ข้าม rate limiting สำหรับ health check
+    return req.path === '/api/health';
+  }
+});
 
-/* ---------- upload (multer) ---------- */
-// สร้างโฟลเดอร์สำหรับอัปโหลดไฟล์
+// 🔐 Auth Rate Limiting - สำหรับการเข้าสู่ระบบ (5 ครั้ง ใน 15 นาที)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,   // หน้าต่างเวลา: 15 นาที
+  max: 5,                     // จำนวนครั้งสูงสุด: 5 attempts per IP
+  message: {
+    ok: false,
+    message: "พยายามเข้าสู่ระบบมากเกินไป กรุณารอสักครู่" // ข้อความเมื่อเกินลิมิต
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true // ไม่นับการเข้าสู่ระบบที่สำเร็จ
+});
+
+// ✏️ Content Creation Rate Limiting - สำหรับการสร้างกระทู้ (10 ครั้ง ต่อ ชั่วโมง)
+const createLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,   // หน้าต่างเวลา: 1 ชั่วโมง
+  max: 10,                    // จำนวนครั้งสูงสุด: 10 posts per IP
+  message: {
+    ok: false,
+    message: "สร้างกระทู้มากเกินไป กรุณารอก่อนสร้างใหม่" // ข้อความเมื่อเกินลิมิต
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// 💬 Comment Rate Limiting - สำหรับการแสดงความคิดเห็น (30 ครั้ง ต่อ ชั่วโมง)
+const commentLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,   // หน้าต่างเวลา: 1 ชั่วโมง
+  max: 30,                    // จำนวนครั้งสูงสุด: 30 comments per IP
+  message: {
+    ok: false,
+    message: "แสดงความคิดเห็นมากเกินไป กรุณาชะลอการโพสต์" // ข้อความเมื่อเกินลิมิต
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// 🚨 Report Rate Limiting - สำหรับการรายงาน (5 ครั้ง ต่อ วัน)
+const reportLimiter = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000, // หน้าต่างเวลา: 24 ชั่วโมง
+  max: 5,                         // จำนวนครั้งสูงสุด: 5 reports per IP
+  message: {
+    ok: false,
+    message: "รายงานมากเกินไปในวันนี้ กรุณาลองใหม่พรุ่งนี้" // ข้อความเมื่อเกินลิมิต
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+/* ==================================================================================
+ * 🔧 MIDDLEWARE CONFIGURATION - การตั้งค่า middleware ต่างๆ
+ * ==================================================================================
+ * ลำดับการใส่ middleware มีความสำคัญ ต้องเรียงตามลำดับที่ถูกต้อง
+ */
+
+// 🛡️ Security Headers - เพิ่มความปลอดภัยด้วย HTTP headers (ต้องมาก่อนอื่น)
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],                                    // อนุญาตเฉพาะ same origin
+      styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"], // CSS sources
+      scriptSrc: ["'self'", "'unsafe-inline'"],                 // JavaScript sources  
+      imgSrc: ["'self'", "data:", "https:", "http://localhost:*"], // Image sources
+      connectSrc: ["'self'", "http://localhost:*"],              // AJAX/WebSocket connections
+      fontSrc: ["'self'", "https://cdn.jsdelivr.net"],          // Font sources
+    },
+  },
+  crossOriginResourcePolicy: { policy: "cross-origin" }         // อนุญาต cross-origin requests
+}));
+
+// 📦 Response Compression - บีบอัดข้อมูลเพื่อเพิ่มความเร็วในการโหลด
+app.use(compression({
+  filter: (req, res) => {
+    // ข้ามการบีบอัดถ้ามี header ไม่ให้บีบอัด
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  },
+  level: 6, // Good balance between compression and speed
+  threshold: 1024 // Only compress responses > 1KB
+}));
+
+// 🌐 CORS Configuration - จัดการ Cross-Origin Resource Sharing (ต้องมาก่อน static files)
+app.use(cors({ 
+  origin: ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"], // URL ที่อนุญาต
+  credentials: true,                          // อนุญาต cookies/credentials
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"], // HTTP methods ที่อนุญาต
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"], // Headers ที่อนุญาต
+  exposedHeaders: ["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"] // Headers ที่ส่งให้ client
+}));
+
+// 📁 Static File Serving - เสิร์ฟไฟล์รูปภาพและไฟล์อื่นๆ พร้อม caching
+app.use("/static", express.static(path.join(__dirname, "../static"), {
+  maxAge: process.env.NODE_ENV === 'production' ? '7d' : '1h', // Cache: 7 วันใน production, 1 ชั่วโมงใน dev
+  etag: true,                                 // ใช้ ETag สำหรับ cache validation
+  lastModified: true,                         // ใช้ Last-Modified header
+  setHeaders: (res, path, stat) => {
+    // ตั้งค่า CORS headers สำหรับ static files
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    
+    // ปรับแต่ง caching ตามประเภทไฟล์
+    if (path.endsWith('.jpg') || path.endsWith('.jpeg') || path.endsWith('.png') || path.endsWith('.gif')) {
+      res.setHeader('Cache-Control', 'public, max-age=604800'); // Cache รูปภาพ 7 วัน
+    }
+  }
+}));
+
+// 🛡️ ใช้ general rate limiting กับ API routes เท่านั้น
+app.use('/api', generalLimiter);
+
+// 📝 การประมวลผล request body และ cookies
+app.use(express.json({ limit: '10mb' })); // แปลง JSON body พร้อมจำกัดขนาด 10MB
+app.use(cookieParser()); // แปลง cookies จาก request
+
+// ⚙️ จัดการ preflight OPTIONS requests สำหรับ CORS
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    // ตั้งค่า CORS headers สำหรับ preflight requests
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    return res.sendStatus(200); // ส่งสถานะ OK กลับ
+  }
+  next(); // ไปยัง middleware ถัดไป
+});
+
+/* ==================================================================================
+ * 📤 FILE UPLOAD CONFIGURATION - การตั้งค่าการอัปโหลดไฟล์
+ * ==================================================================================
+ * ใช้ multer สำหรับจัดการการอัปโหลดไฟล์รูปภาพ
+ * แบ่งเป็นประเภท: รูปกระทู้, อวตาร์, รูปคอมเมนต์
+ */
+// 📁 สร้างโฟลเดอร์สำหรับเก็บไฟล์ที่อัปโหลด
 const uploadDirs = {
-  thread: path.join(__dirname, "../static/thread_images"),
-  avatar: path.join(__dirname, "../static/avatars")
+  thread: path.join(__dirname, "../static/thread_images"),    // โฟลเดอร์รูปภาพกระทู้
+  avatar: path.join(__dirname, "../static/avatars")          // โฟลเดอร์รูปอวตาร์
 };
+// สร้างโฟลเดอร์ทั้งหมดถ้ายังไม่มี (recursive: true = สร้างโฟลเดอร์ parent ด้วย)
 Object.values(uploadDirs).forEach(dir => fs.mkdirSync(dir, { recursive: true }));
 
-// ตั้งค่า multer สำหรับอัปโหลดรูปกระทู้
+// 🖼️ ตั้งค่า multer สำหรับอัปโหลดรูปภาพกระทู้
 const threadStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDirs.thread),
+  destination: (req, file, cb) => cb(null, uploadDirs.thread), // โฟลเดอร์ปลายทาง
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `thread-${Date.now()}${ext}`);
+    const ext = path.extname(file.originalname);               // ดึงนามสกุลไฟล์
+    cb(null, `thread-${Date.now()}${ext}`);                   // ตั้งชื่อไฟล์: thread-timestamp.ext
   }
 });
 
-// ตั้งค่า multer สำหรับอัปโหลด avatar
+// 👤 ตั้งค่า multer สำหรับอัปโหลดรูปอวตาร์
 const avatarStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDirs.avatar),
+  destination: (req, file, cb) => cb(null, uploadDirs.avatar), // โฟลเดอร์ปลายทาง  
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `avatar-${Date.now()}${ext}`);
+    const ext = path.extname(file.originalname);               // ดึงนามสกุลไฟล์
+    cb(null, `avatar-${Date.now()}${ext}`);                   // ตั้งชื่อไฟล์: avatar-timestamp.ext
   }
 });
 
-// สร้าง multer instances
-const uploadThread = multer({ storage: threadStorage });
-const uploadAvatar = multer({ storage: avatarStorage });
+// 📤 สร้าง multer instances สำหรับการอัปโหลดไฟล์ประเภทต่างๆ
+const uploadThread = multer({ storage: threadStorage }); // สำหรับรูปภาพกระทู้
+const uploadAvatar = multer({ storage: avatarStorage }); // สำหรับรูปอวตาร์
 
-/* ---------- health ---------- */
-// API ตรวจสอบสถานะเซิร์ฟเวอร์
-app.get('/api/health', (req, res) => {
-  res.json({ ok: true, time: new Date().toISOString() });
+// 💬 ตั้งค่า multer สำหรับรูปภาพคอมเมนต์
+const commentImageStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = path.join(__dirname, "../static/comment_images"); // โฟลเดอร์รูปคอมเมนต์
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });                     // สร้างโฟลเดอร์ถ้ายังไม่มี
+    }
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);                   // ดึงนามสกุลไฟล์
+    // ตั้งชื่อไฟล์แบบ unique: comment_timestamp_randomstring.ext
+    const filename = `comment_${Date.now()}_${Math.random().toString(36).substring(7)}${ext}`;
+    cb(null, filename);
+  }
 });
 
-/* ---------- auth ---------- */
-// API สมัครสมาชิกใหม่ - รับ username, email, password แล้วสร้าง user ใหม่
-app.post("/api/register", async (req, res) => {
+// 📷 สร้าง multer instance สำหรับรูปคอมเมนต์ พร้อมการตรวจสอบ
+const uploadCommentImage = multer({
+  storage: commentImageStorage,                    // ใช้ storage ที่ตั้งค่าไว้
+  limits: { fileSize: 5 * 1024 * 1024 },         // จำกัดขนาดไฟล์ 5MB
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {     // ยอมรับเฉพาะไฟล์รูปภาพ
+      cb(null, true);
+    } else {
+      cb(new Error('อนุญาตเฉพาะไฟล์รูปภาพเท่านั้น'), false);
+    }
+  }
+});
+
+/* ==================================================================================
+ * 💊 HEALTH CHECK - การตรวจสอบสถานะเซิร์ฟเวอร์
+ * ================================================================================== 
+ */
+
+// 🩺 API ตรวจสอบสถานะเซิร์ฟเวอร์ (ไม่มี rate limiting)
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    ok: true, 
+    time: new Date().toISOString(),
+    status: 'Server is running' 
+  });
+});
+
+/* ==================================================================================
+ * 🔐 AUTHENTICATION APIs - การจัดการการเข้าสู่ระบบ
+ * ==================================================================================
+ * ฟีเจอร์: สมัครสมาชิก, เข้าสู่ระบบ, ออกจากระบบ
+ * ความปลอดภัย: bcrypt สำหรับ hash password, JWT สำหรับ session
+ */
+// 📝 API สมัครสมาชิกใหม่ - พร้อม rate limiting (5 ครั้ง/15นาที)
+app.post("/api/register", authLimiter, async (req, res) => {
   try {
     const { username, email, password } = req.body || {};
-    // ตรวจสอบข้อมูลที่จำเป็น
+    
+    // 🔍 ตรวจสอบข้อมูลที่จำเป็น
     if (!username || !email || !password) {
-      return res.status(400).json({ ok: false, message: "ข้อมูลไม่ครบ" });
+      return res.status(400).json({ ok: false, message: "กรุณากรอกข้อมูลให้ครบถ้วน" });
     }
-    // ตรวจสอบความยาวรหัสผ่าน
+    
+    // 🔒 ตรวจสอบความยาวรหัสผ่าน (ความปลอดภัย)
     if (password.length < 6) {
-      return res.status(400).json({ ok: false, message: "รหัสผ่านอย่างน้อย 6 ตัวอักษร" });
+      return res.status(400).json({ ok: false, message: "รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร" });
     }
 
-    // เข้ารหัสรหัสผ่าน
+    // 🔐 เข้ารหัสรหัสผ่านด้วย bcrypt (salt rounds = 10)
     const passHash = await bcrypt.hash(password, 10);
-    // สร้าง user ใหม่ในฐานข้อมูล
+    
+    // 💾 สร้างบัญชีผู้ใช้ใหม่ในฐานข้อมูล
     const user = await prisma.user.create({
       data: {
-        username,
-        email,
-        passHash,
-        role: "user", // ตั้งค่า role เริ่มต้นเป็น user
-        avatarUrl: "/static/avatars/default.png", // avatar เริ่มต้น
+        username,                                    // ชื่อผู้ใช้
+        email,                                       // อีเมล
+        passHash,                                    // รหัสผ่านที่เข้ารหัสแล้ว
+        role: "user",                               // สิทธิ์เริ่มต้น: user
+        avatarUrl: "/static/avatars/default.png",   // รูปโปรไฟล์เริ่มต้น
       },
+      // 🎯 เลือกเฉพาะข้อมูลที่ต้องการส่งกลับ (ไม่รวม passHash)
       select: { id: true, username: true, email: true, role: true, avatarUrl: true },
     });
 
-    return res.json({ ok: true, message: "สมัครสำเร็จ", user });
+    // 📊 บันทึก log การสมัครสมาชิก
+    await saveLog(user.id, user.username, 'register', 'สมัครสมาชิกใหม่', req);
+
+    return res.json({ ok: true, message: "สมัครสมาชิกสำเร็จ", user });
   } catch (err) {
     // จัดการ error ข้อมูลซ้ำ (unique constraint)
     if (err.code === "P2002") {
@@ -101,25 +328,66 @@ app.post("/api/register", async (req, res) => {
   }
 });
 
-// API เข้าสู่ระบบ - รับ username, password แล้วคืน JWT token
-app.post("/api/login", async (req, res) => {
+// ✅ Optimized log saving with batching
+let logQueue = [];
+const BATCH_SIZE = 10;
+const BATCH_TIMEOUT = 5000; // 5 seconds
+
+const saveLog = async (userId, username, action, details, req) => {
+  try {
+    const logEntry = {
+      userId,
+      username,
+      action,
+      details,
+      ip: req?.ip || req?.connection?.remoteAddress || 'unknown',
+      timestamp: new Date()
+    };
+    
+    logQueue.push(logEntry);
+    
+    // Process batch when it reaches size limit
+    if (logQueue.length >= BATCH_SIZE) {
+      await processBatch();
+    }
+  } catch (error) {
+    console.log('Log queue failed:', error.message);
+  }
+};
+
+// Process log batch
+const processBatch = async () => {
+  if (logQueue.length === 0) return;
+  
+  const batch = logQueue.splice(0, BATCH_SIZE);
+  try {
+    await ActivityLog.insertMany(batch);
+  } catch (error) {
+    console.log('Batch log save failed:', error.message);
+  }
+};
+
+// Process remaining logs every 5 seconds
+setInterval(processBatch, BATCH_TIMEOUT);
+
+// ✅ API เข้าสู่ระบบ - พร้อม rate limiting
+app.post("/api/login", authLimiter, async (req, res) => {
   const { username, password } = req.body || {};
-  // ค้นหา user จาก username (ใช้ findFirst เพราะ username อาจไม่ unique)
   const user = await prisma.user.findFirst({ where: { username } });
   if (!user) return res.status(401).json({ ok: false, message: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" });
 
-  // ตรวจสอบรหัสผ่าน
   const ok = await bcrypt.compare(password, user.passHash);
   if (!ok) return res.status(401).json({ ok: false, message: "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" });
 
-  // สร้าง JWT token พร้อมข้อมูล user
   const token = jwt.sign(
     { id: user.id, email: user.email, role: user.role },
     process.env.JWT_SECRET || "changeme",
     { expiresIn: "7d" }
   );
 
-  // ส่งข้อมูล user และ token กลับไป
+  // เก็บ log login
+  await saveLog(user.id, user.username, 'login', 'เข้าสู่ระบบ', req);
+
   res.json({
     ok: true,
     redirectTo: "/thread",
@@ -137,34 +405,84 @@ app.post("/api/login", async (req, res) => {
 });
 
 /* ---------- threads ---------- */
-// API ดึงรายการกระทู้ทั้งหมด หรือกรองตามหมวดหมู่
-app.get("/api/threads", async (req, res) => {
-  // กรองตามหมวดหมู่ถ้ามี query parameter
-  const categoryId = req.query.category ? parseInt(req.query.category, 10) : null;
-  const where = categoryId ? { categoryId } : {};
+// ✅ Simple memory cache for threads (5 minutes)
+const threadCache = new Map();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-  // ดึงกระทู้พร้อมข้อมูลผู้เขียน เรียงตามวันที่สร้างล่าสุด
-  const items = await prisma.thread.findMany({
-    where,
-    include: { author: { select: { id: true, email: true, username: true, avatarUrl: true } } },
-    orderBy: { createdAt: "desc" },
-  });
-  res.json({ ok: true, items });
+// API ดึงรายการกระทู้ทั้งหมด หรือกรองตามหมวดหมู่ - พร้อม caching และ pagination
+app.get("/api/threads", async (req, res) => {
+  try {
+    const categoryId = req.query.category ? parseInt(req.query.category, 10) : null;
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 20; // Default 20 items per page
+    const skip = (page - 1) * limit;
+    
+    const cacheKey = `threads_${categoryId || 'all'}_${page}_${limit}`;
+    
+    // Check cache first
+    if (threadCache.has(cacheKey)) {
+      const cached = threadCache.get(cacheKey);
+      if (Date.now() - cached.timestamp < CACHE_DURATION) {
+        return res.json(cached.data);
+      }
+      threadCache.delete(cacheKey);
+    }
+    
+    const where = categoryId ? { categoryId } : {};
+
+    // ✅ Optimized query with pagination
+    const [items, total] = await Promise.all([
+      prisma.thread.findMany({
+        where,
+        include: { 
+          author: { 
+            select: { id: true, email: true, username: true, avatarUrl: true } 
+          },
+          _count: {
+            select: { comments: true }
+          }
+        },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+        skip: skip
+      }),
+      prisma.thread.count({ where })
+    ]);
+
+    const response = { 
+      ok: true, 
+      items,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    };
+    
+    // Cache the result
+    threadCache.set(cacheKey, {
+      data: response,
+      timestamp: Date.now()
+    });
+    
+    res.json(response);
+  } catch (error) {
+    console.error('Error fetching threads:', error);
+    res.status(500).json({ ok: false, message: "เกิดข้อผิดพลาดในการดึงข้อมูลกระทู้" });
+  }
 });
 
-// API สร้างกระทู้ใหม่ - รับข้อมูลกระทู้ + รูปภาพ (optional)
-app.post("/api/threads", uploadThread.single("cover"), async (req, res) => {
+// ✅ API สร้างกระทู้ใหม่ - พร้อม rate limiting
+app.post("/api/threads", createLimiter, uploadThread.single("cover"), async (req, res) => {
   const { title, body, tags, categoryId } = req.body;
-  const auth = req.headers.authorization?.replace(/^Bearer\s+/i, "") || "";
   try {
-    // ตรวจสอบข้อมูลที่จำเป็น
     const userId = parseInt(req.body.userId, 10);
     const catId = categoryId ? parseInt(categoryId, 10) : null;
     if (!title?.trim() || !body?.trim() || Number.isNaN(userId) || !catId) {
       return res.status(400).json({ ok: false, message: "invalid input" });
     }
 
-    // สร้างกระทู้ใหม่พร้อม cover image (ถ้ามี)
     const thread = await prisma.thread.create({
       data: {
         title: title.trim(),
@@ -180,6 +498,12 @@ app.post("/api/threads", uploadThread.single("cover"), async (req, res) => {
         }
       }
     });
+
+    // เก็บ log สร้างกระทู้
+    await saveLog(userId, thread.author.username, 'create_thread', `สร้างกระทู้: ${title}`, req);
+
+    // ✅ Clear thread cache when new thread is created
+    clearThreadCache();
 
     res.json({ ok: true, thread });
   } catch (err) {
@@ -200,19 +524,68 @@ if (fs.existsSync(distPath)) {
   });
 }
 
-// API ดึงข้อมูลกระทู้ตาม ID พร้อมข้อมูลผู้เขียน
+// ✅ Helper functions to clear caches
+function clearThreadCache() {
+  for (const key of threadCache.keys()) {
+    if (key.startsWith('thread_') || key.startsWith('threads_')) {
+      threadCache.delete(key);
+    }
+  }
+}
+
+function clearCommentCache(threadId) {
+  for (const key of threadCache.keys()) {
+    if (key.startsWith(`comments_${threadId}_`)) {
+      threadCache.delete(key);
+    }
+  }
+}
+
+// API ดึงข้อมูลกระทู้ตาม ID พร้อมข้อมูลผู้เขียน - พร้อม caching
 app.get("/api/threads/:id", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (Number.isNaN(id)) return res.status(400).json({ ok: false, message: "bad id" });
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ ok: false, message: "bad id" });
 
-  // ค้นหากระทู้ตาม ID พร้อมข้อมูลผู้เขียน
-  const t = await prisma.thread.findUnique({
-    where: { id },
-    include: { author: { select: { id: true, email: true, username: true, avatarUrl: true } } },
-  });
-  if (!t) return res.status(404).json({ ok: false, message: "not found" });
+    const cacheKey = `thread_${id}`;
+    
+    // Check cache first
+    if (threadCache.has(cacheKey)) {
+      const cached = threadCache.get(cacheKey);
+      if (Date.now() - cached.timestamp < CACHE_DURATION) {
+        return res.json(cached.data);
+      }
+      threadCache.delete(cacheKey);
+    }
 
-  res.json({ ok: true, thread: t });
+    // ✅ Optimized query with comment count
+    const t = await prisma.thread.findUnique({
+      where: { id },
+      include: { 
+        author: { 
+          select: { id: true, email: true, username: true, avatarUrl: true } 
+        },
+        _count: {
+          select: { comments: true }
+        }
+      },
+    });
+    
+    if (!t) return res.status(404).json({ ok: false, message: "not found" });
+
+    const response = { ok: true, thread: t };
+    
+    // Cache the result
+    threadCache.set(cacheKey, {
+      data: response,
+      timestamp: Date.now()
+    });
+
+    res.json(response);
+  } catch (error) {
+    console.error('Error fetching thread:', error);
+    res.status(500).json({ ok: false, message: "เกิดข้อผิดพลาดในการดึงข้อมูลกระทู้" });
+  }
 });
 
 // API ลบกระทู้ - เฉพาะเจ้าของหรือ admin เท่านั้น
@@ -241,53 +614,260 @@ app.delete("/api/threads/:id", async (req, res) => {
   await prisma.comment.deleteMany({ where: { threadId: id } });
   // แล้วค่อยลบกระทู้
   await prisma.thread.delete({ where: { id } });
+
+  // ✅ Clear thread cache when thread is deleted
+  clearThreadCache();
+
   res.json({ ok: true });
 });
 
-// API ดึงคอมเมนต์ทั้งหมดของกระทู้
+// API ดึงคอมเมนต์ทั้งหมดของกระทู้ - พร้อม pagination และ caching
 app.get("/api/threads/:id/comments", async (req, res) => {
-  const threadId = parseInt(req.params.id, 10);
-  if (Number.isNaN(threadId)) return res.status(400).json({ ok: false, message: "bad id" });
+  try {
+    const threadId = parseInt(req.params.id, 10);
+    if (Number.isNaN(threadId)) return res.status(400).json({ ok: false, message: "bad id" });
+    
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 50; // Default 50 comments per page
+    const skip = (page - 1) * limit;
+    
+    const cacheKey = `comments_${threadId}_${page}_${limit}`;
+    
+    // Check cache first
+    if (threadCache.has(cacheKey)) {
+      const cached = threadCache.get(cacheKey);
+      if (Date.now() - cached.timestamp < CACHE_DURATION) {
+        return res.json(cached.data);
+      }
+      threadCache.delete(cacheKey);
+    }
 
-  // ตรวจสอบว่ากระทู้มีอยู่จริง
-  const thread = await prisma.thread.findUnique({ where: { id: threadId } });
-  if (!thread) return res.status(404).json({ ok: false, message: "ไม่พบกระทู้" });
+    // ตรวจสอบว่ากระทู้มีอยู่จริง (cached)
+    const threadCacheKey = `thread_${threadId}`;
+    let thread = null;
+    
+    if (threadCache.has(threadCacheKey)) {
+      const cached = threadCache.get(threadCacheKey);
+      if (Date.now() - cached.timestamp < CACHE_DURATION) {
+        thread = cached.data.thread;
+      }
+    }
+    
+    if (!thread) {
+      thread = await prisma.thread.findUnique({ where: { id: threadId } });
+      if (!thread) return res.status(404).json({ ok: false, message: "ไม่พบกระทู้" });
+    }
 
-  // ดึงคอมเมนต์ทั้งหมดพร้อมข้อมูลผู้เขียน เรียงตามวันที่สร้าง
-  const items = await prisma.comment.findMany({
-    where: { threadId },
-    include: { author: { select: { id: true, username: true, email: true, avatarUrl: true } } },
-    orderBy: { createdAt: "asc" },
-  });
+    // ✅ Optimized query with pagination
+    const [items, total] = await Promise.all([
+      prisma.comment.findMany({
+        where: { threadId },
+        include: { 
+          author: { 
+            select: { id: true, username: true, email: true, avatarUrl: true } 
+          } 
+        },
+        orderBy: { createdAt: "asc" },
+        take: limit,
+        skip: skip
+      }),
+      prisma.comment.count({ where: { threadId } })
+    ]);
 
-  res.json({ ok: true, items });
+    const response = { 
+      ok: true, 
+      items,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    };
+    
+    // Cache the result
+    threadCache.set(cacheKey, {
+      data: response,
+      timestamp: Date.now()
+    });
+
+    res.json(response);
+  } catch (error) {
+    console.error('Error fetching comments:', error);
+    res.status(500).json({ ok: false, message: "เกิดข้อผิดพลาดในการดึงข้อมูลคอมเมนต์" });
+  }
 });
 
-// API สร้างคอมเมนต์ใหม่ในกระทู้
-app.post("/api/threads/:id/comments", async (req, res) => {
-  const threadId = parseInt(req.params.id, 10);
-  const { body, authorId } = req.body || {};
-  // ตรวจสอบข้อมูลที่จำเป็น
-  if (!body || !authorId) {
-    return res.status(400).json({ ok: false, message: "ข้อมูลไม่ครบ" });
-  }
-  // ตรวจสอบว่ากระทู้มีอยู่จริง
-  const thread = await prisma.thread.findUnique({ where: { id: threadId } });
-  if (!thread) return res.status(404).json({ ok: false, message: "ไม่พบกระทู้" });
-
-  // สร้างคอมเมนต์ใหม่พร้อมข้อมูลผู้เขียน
-  const created = await prisma.comment.create({
-    data: {
-      body: body.trim(),
-      threadId,
-      authorId: parseInt(authorId, 10),
-    },
-    include: {
-      author: { select: { id: true, username: true, email: true, avatarUrl: true } }
+// ✅ API สร้างคอมเมนต์ใหม่ - พร้อม rate limiting
+app.post("/api/threads/:id/comments", commentLimiter, uploadCommentImage.single("image"), async (req, res) => {
+  try {
+    const threadId = parseInt(req.params.id, 10);
+    const { body } = req.body || {};
+    
+    // ดึง user จาก token
+    const auth = req.headers.authorization || "";
+    const token = auth.replace(/^Bearer\s+/i, "");
+    let user = null;
+    try {
+      user = jwt.verify(token, process.env.JWT_SECRET || "changeme");
+    } catch {
+      return res.status(401).json({ ok: false, message: "Invalid token" });
     }
-  });
+    
+    if (!body?.trim() && !req.file) {
+      return res.status(400).json({ ok: false, message: "ต้องมีข้อความหรือรูปภาพ" });
+    }
 
-  res.json({ ok: true, comment: created });
+    const thread = await prisma.thread.findUnique({ where: { id: threadId } });
+    if (!thread) return res.status(404).json({ ok: false, message: "ไม่พบกระทู้" });
+
+    const comment = await prisma.comment.create({
+      data: {
+        body: body?.trim() || "",
+        imageUrl: req.file ? `/static/comment_images/${req.file.filename}` : null,
+        threadId,
+        authorId: user.id,
+      },
+      include: {
+        author: { select: { id: true, username: true, email: true, avatarUrl: true } }
+      }
+    });
+
+    // Log comment creation
+    await saveLog(user.id, comment.author.username, "create_comment", `แสดงความคิดเห็น: ${thread.title}`, req);
+
+    // ✅ Clear comment cache when new comment is created
+    clearCommentCache(threadId);
+
+    res.json({ ok: true, comment });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: "เกิดข้อผิดพลาด" });
+  }
+});
+
+// API ลบคอมเมนต์ - เฉพาะเจ้าของหรือ admin
+app.delete("/api/comments/:id", async (req, res) => {
+  const commentId = parseInt(req.params.id, 10);
+  if (Number.isNaN(commentId)) return res.status(400).json({ ok: false, message: "Invalid comment ID" });
+  
+  const auth = req.headers.authorization || "";
+  const token = auth.replace(/^Bearer\s+/i, "");
+  let user = null;
+  try {
+    user = jwt.verify(token, process.env.JWT_SECRET || "changeme");
+  } catch {
+    return res.status(401).json({ ok: false, message: "Unauthorized" });
+  }
+
+  try {
+    // ค้นหาคอมเมนต์
+    const comment = await prisma.comment.findUnique({ where: { id: commentId } });
+    if (!comment) return res.status(404).json({ ok: false, message: "Comment not found" });
+
+    // ตรวจสอบสิทธิ์ (เจ้าของหรือ admin เท่านั้น)
+    if (comment.authorId !== user.id && user.role !== "admin") {
+      return res.status(403).json({ ok: false, message: "Permission denied" });
+    }
+
+    // ลบรูปภาพถ้ามี
+    if (comment.imageUrl) {
+      try {
+        const imagePath = path.join(__dirname, "..", comment.imageUrl);
+        if (fs.existsSync(imagePath)) {
+          fs.unlinkSync(imagePath);
+        }
+      } catch (err) {
+        console.log("Failed to delete comment image:", err.message);
+      }
+    }
+
+    // ลบคอมเมนต์
+    await prisma.comment.delete({ where: { id: commentId } });
+
+    // เก็บ log ลบคอมเมนต์
+    await saveLog(user.id, user.email, 'delete_comment', `ลบคอมเมนต์ ID: ${commentId}`, req);
+
+    res.json({ ok: true, message: "ลบคอมเมนต์สำเร็จ" });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, message: "Server error" });
+  }
+});
+
+// API แก้ไขคอมเมนต์ - เฉพาะเจ้าของ
+app.put("/api/comments/:id", uploadCommentImage.single("image"), async (req, res) => {
+  const commentId = parseInt(req.params.id, 10);
+  if (Number.isNaN(commentId)) return res.status(400).json({ ok: false, message: "Invalid comment ID" });
+  
+  const auth = req.headers.authorization || "";
+  const token = auth.replace(/^Bearer\s+/i, "");
+  let user = null;
+  try {
+    user = jwt.verify(token, process.env.JWT_SECRET || "changeme");
+  } catch {
+    return res.status(401).json({ ok: false, message: "Unauthorized" });
+  }
+
+  try {
+    // ค้นหาคอมเมนต์
+    const existingComment = await prisma.comment.findUnique({ where: { id: commentId } });
+    if (!existingComment) return res.status(404).json({ ok: false, message: "Comment not found" });
+
+    // ตรวจสอบสิทธิ์ (เจ้าของเท่านั้น)
+    if (existingComment.authorId !== user.id) {
+      return res.status(403).json({ ok: false, message: "Permission denied" });
+    }
+
+    const { body } = req.body;
+    
+    // ตรวจสอบว่ามีข้อมูลที่จะอัปเดต
+    if (!body?.trim() && !req.file) {
+      return res.status(400).json({ ok: false, message: "Body or image is required" });
+    }
+
+    let updateData = {};
+    
+    // อัปเดต body ถ้ามี
+    if (body?.trim()) {
+      updateData.body = body.trim();
+    }
+
+    // จัดการรูปภาพใหม่
+    if (req.file) {
+      // ลบรูปเดิมถ้ามี
+      if (existingComment.imageUrl) {
+        try {
+          const oldImagePath = path.join(__dirname, "..", existingComment.imageUrl);
+          if (fs.existsSync(oldImagePath)) {
+            fs.unlinkSync(oldImagePath);
+          }
+        } catch (err) {
+          console.log("Failed to delete old comment image:", err.message);
+        }
+      }
+      updateData.imageUrl = `/static/comment_images/${req.file.filename}`;
+    }
+
+    // อัปเดตคอมเมนต์
+    const updatedComment = await prisma.comment.update({
+      where: { id: commentId },
+      data: updateData,
+      include: {
+        author: {
+          select: { id: true, username: true, email: true, avatarUrl: true }
+        }
+      }
+    });
+
+    // เก็บ log แก้ไขคอมเมนต์
+    await saveLog(user.id, user.email, 'edit_comment', `แก้ไขคอมเมนต์ ID: ${commentId}`, req);
+
+    res.json({ ok: true, comment: updatedComment, message: "แก้ไขคอมเมนต์สำเร็จ" });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ ok: false, message: "Server error" });
+  }
 });
 
 /* ---------- users ---------- */
@@ -455,8 +1035,8 @@ app.delete("/api/categories/:id", auth, async (req, res) => {
 });
 
 /* ---------- reports ---------- */
-// API รายงานกระทู้ - บันทึกข้อมูลการรายงานลง MongoDB
-app.post("/api/reports", async (req, res) => {
+// ✅ API รายงานกระทู้ - พร้อม rate limiting
+app.post("/api/reports", reportLimiter, async (req, res) => {
   const { threadId, threadTitle, reason } = req.body;
   const auth = req.headers.authorization || "";
   const token = auth.replace(/^Bearer\s+/i, "");
@@ -469,7 +1049,6 @@ app.post("/api/reports", async (req, res) => {
   }
   if (!threadId || !reason) return res.status(400).json({ ok: false, message: "ข้อมูลไม่ครบ" });
   
-  // บันทึกรายงานลง MongoDB
   const report = await Report.create({
     threadId,
     threadTitle,
@@ -477,6 +1056,10 @@ app.post("/api/reports", async (req, res) => {
     reporterEmail: user.email,
     reason
   });
+
+  // เก็บ log รายงานกระทู้
+  await saveLog(user.id, user.email, 'report', `รายงานกระทู้: ${threadTitle}`, req);
+
   res.json({ ok: true, report });
 });
 
@@ -611,6 +1194,34 @@ app.get("/api/admin/dashboard", async (req, res) => {
     userCount,
     threadCount,
     dailyUsers
+  });
+});
+
+// API ดู logs (เฉพาะ admin)
+app.get("/api/logs", async (req, res) => {
+  const auth = req.headers.authorization || "";
+  const token = auth.replace(/^Bearer\s+/i, "");
+  let user = null;
+  try {
+    user = jwt.verify(token, process.env.JWT_SECRET || "changeme");
+  } catch {
+    return res.status(401).json({ ok: false, message: "Invalid token" });
+  }
+  if (user.role !== "admin") return res.status(403).json({ ok: false, message: "forbidden" });
+
+  const { page = 1, limit = 50 } = req.query;
+  
+  const logs = await ActivityLog.find()
+    .sort({ timestamp: -1 })
+    .limit(parseInt(limit))
+    .skip((parseInt(page) - 1) * parseInt(limit));
+
+  const total = await ActivityLog.countDocuments();
+
+  res.json({ 
+    ok: true, 
+    logs, 
+    pagination: { page: parseInt(page), limit: parseInt(limit), total }
   });
 });
 

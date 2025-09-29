@@ -1,26 +1,51 @@
+/*
+ * ==================================================================================
+ * 📝 REGISTER PAGE - หน้าสมัครสมาชิก
+ * ==================================================================================
+ * 
+ * 🎯 วัตถุประสงค์: รับข้อมูลการสมัครสมาชิกและส่งไปยังเซิร์ฟเวอร์
+ * 🔒 การตรวจสอบ: Validation รหัสผ่าน, ความยาว, การยืนยันรหัสผ่าน
+ * 🎨 UX/UI: Real-time validation, Loading states, Error messages
+ * 
+ * ==================================================================================
+ */
+
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 export default function Register() {
-  const [username, setUsername]         = useState("");
-  const [email, setEmail]               = useState("");
-  const [password, setPassword]         = useState("");
-  const [confirmPassword, setConfirm]   = useState("");
-  const [loading, setLoading]           = useState(false);
-  const [error, setError]               = useState("");
+  // 📝 States สำหรับข้อมูล form
+  const [username, setUsername]         = useState("");        // ชื่อผู้ใช้
+  const [email, setEmail]               = useState("");        // อีเมล
+  const [password, setPassword]         = useState("");        // รหัสผ่าน
+  const [confirmPassword, setConfirm]   = useState("");        // ยืนยันรหัสผ่าน
+  
+  // 🎛️ States สำหรับ UI control
+  const [loading, setLoading]           = useState(false);     // สถานะการส่งข้อมูล
+  const [error, setError]               = useState("");        // ข้อความแสดงข้อผิดพลาด
+  
   const navigate = useNavigate();
 
+  // 🚀 ฟังก์ชันจัดการการส่ง form สมัครสมาชิก
   async function onSubmit(e) {
-    e.preventDefault();
-    setError("");
+    e.preventDefault();                                      // ป้องกันการ refresh หน้า
+    setError("");                                            // ล้างข้อความข้อผิดพลาดเดิม
 
-    // ตรวจง่ายๆ ก่อนยิง API
-    if (password.length < 6) return setError("รหัสผ่านอย่างน้อย 6 ตัวอักษร");
-    if (password !== confirmPassword) return setError("ยืนยันรหัสผ่านไม่ตรงกัน");
-    if (!username.trim()) return setError("กรอกชื่อผู้ใช้");
+    // 🔍 Client-side validation - ตรวจสอบข้อมูลก่อนส่งไปเซิร์ฟเวอร์
+    if (password.length < 6) {
+      return setError("รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร");
+    }
+    if (password !== confirmPassword) {
+      return setError("รหัสผ่านและการยืนยันรหัสผ่านไม่ตรงกัน");
+    }
+    if (!username.trim()) {
+      return setError("กรุณากรอกชื่อผู้ใช้");
+    }
 
     try {
-      setLoading(true);
+      setLoading(true);                                      // ตั้งสถานะเป็นกำลังส่งข้อมูล
+      
+      // 📡 ส่งข้อมูลการสมัครสมาชิกไปยังเซิร์ฟเวอร์
       const r = await fetch("/api/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

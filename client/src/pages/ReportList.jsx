@@ -1,33 +1,58 @@
+/*
+ * ==================================================================================
+ * 🚨 REPORT LIST PAGE - หน้ารายการรายงานกระทู้ (Admin Only)  
+ * ==================================================================================
+ * 
+ * 🎯 วัตถุประสงค์: ให้ Admin ดูและจัดการรายงานกระทู้ที่ไม่เหมาะสม
+ * 🔐 ความปลอดภัย: เฉพาะ Admin เท่านั้นที่เข้าถึงได้
+ * 📊 ฟีเจอร์: ดูรายงาน, แก้ไขเหตุผล, ลบรายงาน, Debug mode
+ * 
+ * ==================================================================================
+ */
+
 import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "../auth.jsx";
 import Header from "./Header";
 import Footer from "./Footer";
+
+// 🌐 กำหนด API URL จาก environment variable
 const API = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
 export default function ReportList() {
-  const { user } = useAuth();
-  const [reports, setReports] = useState([]);
-  const [editingReport, setEditingReport] = useState(null);
-  const [editReason, setEditReason] = useState(""); // Fixed hoisting issue
-  const [loading, setLoading] = useState(false);
-  const [pageLoading, setPageLoading] = useState(true);
-  const [error, setError] = useState(null);
+  // 🛠️ Authentication และ user management
+  const { user } = useAuth();                         // ข้อมูลผู้ใช้ปัจจุบัน (ต้องเป็น admin)
+  
+  // 📊 Main content states - ข้อมูลรายงาน
+  const [reports, setReports] = useState([]);        // รายการรายงานทั้งหมด
+  
+  // ✏️ Edit functionality states - การแก้ไขรายงาน
+  const [editingReport, setEditingReport] = useState(null);  // ID ของรายงานที่กำลังแก้ไข
+  const [editReason, setEditReason] = useState("");          // เหตุผลใหม่ที่กำลังแก้ไข
+  
+  // 🎛️ UI control states - ควบคุม UI
+  const [loading, setLoading] = useState(false);             // สถานะการดำเนินการ (แก้ไข/ลบ)
+  const [pageLoading, setPageLoading] = useState(true);      // สถานะการโหลดหน้า
+  const [error, setError] = useState(null);                  // ข้อความแสดงข้อผิดพลาด
 
+  // 📡 ฟังก์ชันโหลดรายการรายงานจากเซิร์ฟเวอร์
   const loadReports = useCallback(async () => {
     try {
+      // 🔍 Debug logging เพื่อตรวจสอบปัญหาการเชื่อมต่อ
       console.log('=== Loading Reports Debug ===');
       console.log('API URL:', API);
       console.log('User:', user);
       console.log('User token exists:', !!user?.token);
       
+      // 🔐 ตรวจสอบ authentication token
       if (!user?.token) {
         throw new Error('ไม่พบ token สำหรับการเข้าถึง');
       }
       
+      // 🎛️ ตั้งค่าสถานะเริ่มต้น
       setPageLoading(true);
       setError(null);
       
-      // Test basic connectivity first
+      // 🏥 ทดสอบการเชื่อมต่อเบื้องต้นกับ health check
       try {
         const pingRes = await fetch(`${API}/api/health`).catch(() => null);
         console.log('Health check:', pingRes?.ok ? 'OK' : 'Failed');
@@ -35,64 +60,80 @@ export default function ReportList() {
         console.log('Health check failed:', e);
       }
       
+      // 🔧 ตั้งค่า request headers พร้อม authentication
       const headers = { 
-        "Authorization": `Bearer ${user.token}`,
+        "Authorization": `Bearer ${user.token}`,    // JWT token สำหรับตรวจสอบสิทธิ์ admin
         "Content-Type": "application/json"
       };
       console.log('Request URL:', `${API}/api/reports`);
       console.log('Request headers:', headers);
       
+      // 📡 ส่งคำขอไปยัง API เพื่อดึงรายการรายงาน
       const res = await fetch(`${API}/api/reports`, { 
         headers,
-        method: 'GET'
+        method: 'GET'                             // ใช้ GET method
       });
       
+      // 🔍 Log ข้อมูล response สำหรับ debugging
       console.log('Response status:', res.status);
       console.log('Response ok:', res.ok);
       console.log('Response headers:', res.headers);
 
+      // 🚨 จัดการ HTTP error status codes
       if (!res.ok) {
         const errorText = await res.text();
         console.error('Response error text:', errorText);
         
+        // 🔐 401 Unauthorized - ไม่มีสิทธิ์เข้าถึง
         if (res.status === 401) {
           throw new Error('ไม่มีสิทธิ์เข้าถึง กรุณาเข้าสู่ระบบใหม่');
-        } else if (res.status === 404) {
+        } 
+        // 🔍 404 Not Found - ไม่พบ API endpoint
+        else if (res.status === 404) {
           throw new Error('ไม่พบ API endpoint');
-        } else if (res.status === 500) {
+        } 
+        // 💥 500 Internal Server Error - เซิร์ฟเวอร์มีปัญหา
+        else if (res.status === 500) {
           throw new Error('เซิร์ฟเวอร์มีปัญหา');
-        } else {
+        } 
+        // ❌ HTTP errors อื่นๆ
+        else {
           throw new Error(`HTTP ${res.status}: ${errorText || 'Server Error'}`);
         }
       }
 
+      // 📊 แปลง response เป็น JSON และ log ข้อมูล
       const data = await res.json();
       console.log('Response data:', data);
       console.log('Reports array:', data.reports);
       
-      // Handle different response formats
+      // 🔄 จัดการรูปแบบ response ที่แตกต่างกัน (flexibility)
       let reportsArray = [];
       if (Array.isArray(data)) {
+        // กรณีที่ server ส่ง array โดยตรง
         reportsArray = data;
       } else if (data.reports && Array.isArray(data.reports)) {
+        // กรณีที่ server ส่ง object พร้อม reports property
         reportsArray = data.reports;
       } else if (data.data && Array.isArray(data.data)) {
+        // กรณีที่ server ส่ง object พร้อม data property
         reportsArray = data.data;
       }
       
       console.log('Final reports array:', reportsArray);
-      setReports(reportsArray);
+      setReports(reportsArray);                         // อัปเดต state ด้วยข้อมูลรายงาน
       
     } catch (error) {
+      // 💥 จัดการข้อผิดพลาดและแสดงข้อความที่เข้าใจง่าย
       console.error('Error loading reports:', error);
       setError(error.message || 'ไม่สามารถโหลดรายงานได้');
-      setReports([]);
+      setReports([]);                                   // ล้างข้อมูลรายงานเดิม
     } finally {
-      setPageLoading(false);
+      setPageLoading(false);                            // หยุดสถานะ loading ไม่ว่าจะสำเร็จหรือไม่
     }
   }, [user]);
 
-  // Timeout สำหรับ loading หากค้างเกิน 10 วินาที
+  // ⏰ Timeout สำหรับป้องกันการโหลดค้างนานเกินไป (10 วินาที)
   useEffect(() => {
     const timeout = setTimeout(() => {
       if (pageLoading) {
@@ -100,9 +141,9 @@ export default function ReportList() {
         setError('การโหลดใช้เวลานานเกินไป กรุณาลองใหม่');
         setPageLoading(false);
       }
-    }, 10000);
+    }, 10000);                                          // 10 วินาที timeout
 
-    return () => clearTimeout(timeout);
+    return () => clearTimeout(timeout);                 // ล้าง timeout เมื่อ component unmount
   }, [pageLoading]);
 
   useEffect(() => {
@@ -116,77 +157,93 @@ export default function ReportList() {
     }
   }, [user, loadReports]);
 
+  // 🗑️ ฟังก์ชันลบรายงาน
   const handleDelete = async (reportId) => {
+    // 🛡️ ยืนยันการลบก่อนดำเนินการ
     if (!window.confirm("ยืนยันการลบรายงานนี้?")) return;
     
-    setLoading(true);
+    setLoading(true);                                   // ตั้งสถานะ loading
     try {
+      // 📡 ส่งคำขอ DELETE ไปยังเซิร์ฟเวอร์
       const res = await fetch(`${API}/api/reports/${reportId}`, {
-        method: "DELETE",
-        headers: { "Authorization": `Bearer ${user.token}` }
+        method: "DELETE",                               // ใช้ DELETE method
+        headers: { "Authorization": `Bearer ${user.token}` } // ส่ง token สำหรับตรวจสอบสิทธิ์
       });
 
+      // 🚨 ตรวจสอบความสำเร็จของการลบ
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({ message: "ลบรายงานไม่สำเร็จ" }));
         throw new Error(errorData.message || "ลบรายงานไม่สำเร็จ");
       }
 
-      setReports(prev => prev.filter(r => r._id !== reportId));
+      // ✅ ลบสำเร็จ - อัปเดต state ใน frontend
+      setReports(prev => prev.filter(r => r._id !== reportId)); // ลบออกจาก array
       alert("ลบรายงานสำเร็จ");
     } catch (error) {
+      // ❌ จัดการข้อผิดพลาดและแสดงข้อความ
       console.error('Error deleting report:', error);
       alert(error.message || "เกิดข้อผิดพลาดในการลบรายงาน");
     } finally {
-      setLoading(false);
+      setLoading(false);                                // หยุดสถานะ loading
     }
   };
 
+  // ✏️ ฟังก์ชันเริ่มการแก้ไขรายงาน
   const handleEdit = (report) => {
-    setEditingReport(report._id);
-    setEditReason(report.reason);
+    setEditingReport(report._id);                       // ตั้ง ID ของรายงานที่กำลังแก้ไข
+    setEditReason(report.reason);                       // ใส่เหตุผลเดิมลงในช่อง input
   };
 
+  // 💾 ฟังก์ชันบันทึกการแก้ไขรายงาน
   const handleSaveEdit = async (reportId) => {
+    // 🔍 ตรวจสอบว่ามีเหตุผลใหม่หรือไม่
     if (!editReason.trim()) {
       alert("กรุณาระบุเหตุผลในการรายงาน");
       return;
     }
 
-    setLoading(true);
+    setLoading(true);                                   // ตั้งสถานะ loading
     try {
+      // 📡 ส่งคำขอ PUT เพื่ออัปเดตรายงาน
       const res = await fetch(`${API}/api/reports/${reportId}`, {
-        method: "PUT",
+        method: "PUT",                                  // ใช้ PUT method สำหรับการอัปเดต
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${user.token}`
+          "Authorization": `Bearer ${user.token}`       // ส่ง token สำหรับตรวจสอบสิทธิ์
         },
-        body: JSON.stringify({ reason: editReason.trim() })
+        body: JSON.stringify({ reason: editReason.trim() }) // ส่งเหตุผลใหม่
       });
 
+      // 🚨 ตรวจสอบความสำเร็จของการแก้ไข
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({ message: "แก้ไขรายงานไม่สำเร็จ" }));
         throw new Error(errorData.message || "แก้ไขรายงานไม่สำเร็จ");
       }
 
       await res.json();
+      
+      // ✅ แก้ไขสำเร็จ - อัปเดต state ใน frontend
       setReports(prev => prev.map(r => 
         r._id === reportId ? { ...r, reason: editReason.trim() } : r
       ));
       
+      // 🧹 ล้างสถานะการแก้ไข
       setEditingReport(null);
       setEditReason("");
       alert("แก้ไขรายงานสำเร็จ");
     } catch (error) {
+      // ❌ จัดการข้อผิดพลาดและแสดงข้อความ
       console.error('Error updating report:', error);
       alert(error.message || "เกิดข้อผิดพลาดในการแก้ไขรายงาน");
     } finally {
-      setLoading(false);
+      setLoading(false);                                // หยุดสถานะ loading
     }
   };
 
+  // 🚫 ฟังก์ชันยกเลิกการแก้ไข
   const handleCancelEdit = () => {
-    setEditingReport(null);
-    setEditReason("");
+    setEditingReport(null);                             // ยกเลิกการแก้ไข
+    setEditReason("");                                  // ล้างเหตุผลที่พิมพ์ไว้
   };
 
   // Loading page
@@ -420,7 +477,6 @@ export default function ReportList() {
           )}
         </div>
       </main>
-      <Footer />
     </div>
   );
 }

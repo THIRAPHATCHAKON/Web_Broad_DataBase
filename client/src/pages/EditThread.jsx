@@ -1,58 +1,80 @@
+/*
+ * ==================================================================================
+ * ✏️ EDIT THREAD PAGE - หน้าแก้ไขกระทู้
+ * ==================================================================================
+ * 
+ * 🎯 วัตถุประสงค์: ให้ผู้ใช้แก้ไขกระทู้ที่ตนเองสร้าง
+ * 🔐 ความปลอดภัย: เฉพาะเจ้าของกระทู้เท่านั้นที่แก้ไขได้
+ * 🎨 ฟีเจอร์: แก้ไขหัวข้อ, เนื้อหา, แท็ก, รูปภาพ พร้อม preview
+ * 
+ * ==================================================================================
+ */
+
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth";
 import Header from "./Header";
 
+// 🌐 กำหนด API URL จาก environment variable
 const API = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
 export default function EditThread() {
-  const { id } = useParams();  // รับ id จาก URL
-  const nav = useNavigate();
-  const { user } = useAuth();
+  // 🛠️ Router hooks และ authentication
+  const { id } = useParams();                    // รับ thread ID จาก URL parameter
+  const nav = useNavigate();                     // สำหรับการนำทางหลังแก้ไขเสร็จ
+  const { user } = useAuth();                    // ข้อมูลผู้ใช้ปัจจุบัน
   
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [tags, setTags] = useState("");
-  const [cover, setCover] = useState(null);
-  const [preview, setPreview] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmmiting] = useState(false);
+  // 📝 Form states - ข้อมูลกระทู้ที่แก้ไข
+  const [title, setTitle] = useState("");        // หัวข้อกระทู้
+  const [body, setBody] = useState("");          // เนื้อหากระทู้
+  const [tags, setTags] = useState("");          // แท็กกระทู้
+  const [cover, setCover] = useState(null);      // ไฟล์รูปภาพใหม่
+  const [preview, setPreview] = useState("");    // URL สำหรับ preview รูปภาพ
+  
+  // 🎛️ UI control states
+  const [loading, setLoading] = useState(true);     // สถานะโหลดข้อมูลกระทู้เดิม
+  const [submitting, setSubmmiting] = useState(false); // สถานะการส่งข้อมูลแก้ไข
 
-  // โหลดข้อมูลกระทู้เดิม
+  // 📡 โหลดข้อมูลกระทู้เดิมเมื่อ component mount
   useEffect(() => {
     (async () => {
       try {
+        // ดึงข้อมูลกระทู้จาก API
         const res = await fetch(`${API}/api/threads/${id}`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || "โหลดข้อมูลไม่สำเร็จ");
 
-        // ตรวจสอบว่าเป็นเจ้าของกระทู้
+        // 🔐 ตรวจสอบสิทธิ์ - เฉพาะเจ้าของกระทู้เท่านั้น
         if (data.thread.authorId !== user?.id) {
-          nav("/");
+          alert("คุณไม่มีสิทธิ์แก้ไขกระทู้นี้");
+          nav("/");                              // ส่งกลับหน้าหลักถ้าไม่ใช่เจ้าของ
           return;
         }
 
+        // 📝 ใส่ข้อมูลเดิมลงใน form
         setTitle(data.thread.title || "");
         setBody(data.thread.body || "");
         setTags(data.thread.tags || "");
+        
+        // 🖼️ ตั้ง preview รูปภาพเดิม (ถ้ามี)
         if (data.thread.coverUrl) {
           setPreview(`${API}${data.thread.coverUrl}`);
         }
       } catch (err) {
         alert(err.message);
-        nav("/");
+        nav("/");                                // ส่งกลับหน้าหลักถ้าเกิดข้อผิดพลาด
       } finally {
-        setLoading(false);
+        setLoading(false);                       // หยุดสถานะ loading
       }
     })();
   }, [id, user?.id, nav]);
 
-  // Preview รูปที่เลือก
+  // 🖼️ จัดการการเปลี่ยนรูปภาพปก
   const handleCoverChange = (e) => {
-    const file = e.target.files[0];
+    const file = e.target.files[0];              // ดึงไฟล์แรกที่เลือก
     if (file) {
-      setCover(file);
-      setPreview(URL.createObjectURL(file));
+      setCover(file);                            // เก็บไฟล์เพื่อส่งไป server
+      setPreview(URL.createObjectURL(file));     // สร้าง preview URL สำหรับแสดงรูป
     }
   };
 
